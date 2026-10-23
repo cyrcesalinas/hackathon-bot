@@ -53,6 +53,17 @@ Fetching credentials is covered in detail in the [getting started guide](https:/
 
 > 🔑 Environment variables can be added to the `.env` file in Glitch or when developing locally, and in the Secrets tab in Replit (the lock icon on the left).
 
+### Configure OpenRouter
+
+Add your OpenRouter API key and the model slug you want to use to `.env` (or your hosting provider's secrets):
+
+```env
+OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_MODEL=provider/model
+```
+
+The `/ask` command sends one question to the configured model and returns a private response. Each invocation is a separate request; the bot does not retain conversation history.
+
 ### Install slash commands
 
 The commands for the example app are set up in `commands.js`. All of the commands in the `ALL_COMMANDS` array at the bottom of `commands.js` will be installed when you run the `register` command configured in `package.json`:
