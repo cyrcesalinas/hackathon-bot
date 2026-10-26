@@ -44,6 +44,90 @@ const CHALLENGE_COMMAND = {
   contexts: [0, 2],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND];
+const STUDY_COMMAND = {
+  name: 'study',
+  description: 'Use a Study Assistant tool',
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+  options: [
+    {
+      type: 1,
+      name: 'ask',
+      description: 'Ask a specific study question',
+      options: [
+        {
+          type: 3,
+          name: 'question',
+          description: 'The question you want help with',
+          required: true,
+        },
+      ],
+    },
+    {
+      type: 1,
+      name: 'upload',
+      description: 'Submit a study file (processing is not connected yet)',
+      options: [
+        {
+          type: 11,
+          name: 'file',
+          description: 'A study file',
+          required: true,
+        },
+      ],
+    },
+    {
+      type: 1,
+      name: 'exam',
+      description: 'Prepare a practice exam from a topic or file',
+      options: [
+        {
+          type: 3,
+          name: 'topic',
+          description: 'Topic for the practice exam',
+          required: false,
+        },
+        {
+          type: 11,
+          name: 'file',
+          description: 'Study file to use for the practice exam',
+          required: false,
+        },
+      ],
+    },
+    {
+      type: 1,
+      name: 'guide',
+      description: 'Prepare a study guide from a topic or file',
+      options: [
+        {
+          type: 3,
+          name: 'topic',
+          description: 'Topic for the study guide',
+          required: false,
+        },
+        {
+          type: 11,
+          name: 'file',
+          description: 'Study file to use for the guide',
+          required: false,
+        },
+      ],
+    },
+  ],
+};
 
-InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
+const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, STUDY_COMMAND];
+
+try {
+  const installedCommands = await InstallGlobalCommands(
+    process.env.APP_ID,
+    ALL_COMMANDS,
+  );
+  const commandNames = installedCommands.map(({ name }) => `/${name}`).join(', ');
+  console.log(`Installed ${installedCommands.length} global commands: ${commandNames}`);
+} catch (err) {
+  console.error('Failed to install global commands:', err);
+  process.exitCode = 1;
+}
