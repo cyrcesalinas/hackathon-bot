@@ -135,7 +135,23 @@ const STUDY_COMMAND = {
   ],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, STUDY_COMMAND];
+const RESEARCH_COMMAND = {
+  name: 'research',
+  description: 'Research a link or topic',
+  options: [
+    {
+      type: 3,
+      name: 'query',
+      description: 'A URL or topic to research',
+      required: true,
+    },
+  ],
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, STUDY_COMMAND, RESEARCH_COMMAND];
 
 try {
   const installedCommands = await InstallGlobalCommands(

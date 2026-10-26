@@ -11,6 +11,7 @@ import {
 import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
 import { handleStudyCommand } from './study.js';
+import { handleResearchCommand } from './research.js';
 
 // Create an express app
 const app = express();
@@ -179,6 +180,17 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
           content,
+          flags: InteractionResponseFlags.EPHEMERAL,
+        },
+      });
+    }
+
+    // Research command skeleton. It accepts a link or topic without fetching it yet.
+    if (name === 'research') {
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: handleResearchCommand(data.options),
           flags: InteractionResponseFlags.EPHEMERAL,
         },
       });
