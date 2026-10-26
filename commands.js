@@ -26,6 +26,23 @@ const TEST_COMMAND = {
   contexts: [0, 1, 2],
 };
 
+// Ask an LLM a question using OpenRouter
+const ASK_COMMAND = {
+  name: 'ask',
+  description: 'Ask the AI assistant a question',
+  options: [
+    {
+      type: 3,
+      name: 'prompt',
+      description: 'Your question for the AI assistant',
+      required: true,
+    },
+  ],
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
 // Command containing options
 const CHALLENGE_COMMAND = {
   name: 'challenge',
