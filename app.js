@@ -10,47 +10,22 @@ import {
 } from 'discord-interactions';
 import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
-import { handleStudyCommand } from './study.js';
+import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
+import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
+import { getOpenRouterAnswer, isOpenRouterConfigured } from './openrouter.js';
+import {
+  buildStudyOpenRouterRequest,
+  getStudyCommandRequest,
+  StudyFileError,
+} from './study.js';
 
 // Create an express app
 const app = express();
 // Get port, or default to 3000
 const PORT = process.env.PORT || 3000;
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DISCORD_API_URL = 'https://discord.com/api/v10';
 // To keep track of our active games
 const activeGames = {};
-
-async function getOpenRouterAnswer(prompt) {
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENROUTER_MODEL,
-      messages: [
-        { role: 'system', content: 'Responde de forma clara y útil. Contesta en el idioma de la pregunta.' },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: 800,
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenRouter returned HTTP ${response.status}`);
-  }
-
-  const result = await response.json();
-  const answer = result.choices?.[0]?.message?.content;
-  if (typeof answer !== 'string' || !answer.trim()) {
-    throw new Error('OpenRouter returned an empty answer');
-  }
-
-  return answer.trim();
-}
 
 async function updateInteractionResponse(applicationId, interactionToken, content) {
   const response = await fetch(
@@ -70,14 +45,26 @@ async function updateInteractionResponse(applicationId, interactionToken, conten
   }
 }
 
-async function answerInteraction(applicationId, interactionToken, prompt) {
+function limitDiscordMessage(content) {
+  const characters = Array.from(content);
+  return characters.length > 1900
+    ? `${characters.slice(0, 1897).join('')}…`
+    : content;
+}
+
+async function answerInteraction(applicationId, interactionToken, requestFactory, operation, failureMessage) {
   let content;
   try {
-    const answer = await getOpenRouterAnswer(prompt);
-    content = answer.length > 1950 ? `${answer.slice(0, 1947)}…` : answer;
+    const request = await requestFactory();
+    const answer = await getOpenRouterAnswer(request);
+    content = limitDiscordMessage(answer);
   } catch (error) {
-    console.error('OpenRouter request failed:', error.message);
-    content = 'No pude obtener una respuesta ahora. Inténtalo de nuevo en un momento.';
+    if (error instanceof StudyFileError) {
+      content = error.userMessage;
+    } else {
+      console.error(`${operation} failed:`, error.message);
+      content = failureMessage;
+    }
   }
 
   try {
@@ -85,6 +72,23 @@ async function answerInteraction(applicationId, interactionToken, prompt) {
   } catch (error) {
     console.error('Could not update the Discord interaction:', error.message);
   }
+}
+
+function deferOpenRouterCommand(res, req, requestFactory, operation, failureMessage) {
+  res.send({
+    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    data: { flags: InteractionResponseFlags.EPHEMERAL },
+  });
+
+  setImmediate(() => {
+    void answerInteraction(
+      req.body.application_id,
+      req.body.token,
+      requestFactory,
+      operation,
+      failureMessage,
+    );
+  });
 }
 
 /**
@@ -122,7 +126,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
 
-      if (!process.env.OPENROUTER_API_KEY || !process.env.OPENROUTER_MODEL) {
+      if (!isOpenRouterConfigured()) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
@@ -132,16 +136,54 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
 
-      // Acknowledge now so the LLM request can finish after Discord's 3-second deadline.
-      res.send({
-        type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { flags: InteractionResponseFlags.EPHEMERAL },
-      });
+      return deferOpenRouterCommand(
+        res,
+        req,
+        async () => ({
+          systemPrompt: ASK_SYSTEM_PROMPT,
+          userContent: prompt.trim(),
+          maxTokens: 800,
+        }),
+        '/ask',
+        'No pude obtener una respuesta ahora. Inténtalo de nuevo en un momento.',
+      );
+    }
 
-      setImmediate(() => {
-        void answerInteraction(req.body.application_id, req.body.token, prompt.trim());
-      });
-      return;
+    if (name === 'research') {
+      const query = data.options?.find((option) => option.name === 'query')?.value;
+
+      if (typeof query !== 'string' || !query.trim()) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: 'Escribe una pregunta o tema para investigar.',
+          },
+        });
+      }
+
+      if (!isOpenRouterConfigured()) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
+          },
+        });
+      }
+
+      return deferOpenRouterCommand(
+        res,
+        req,
+        async () => ({
+          systemPrompt: RESEARCH_SYSTEM_PROMPT,
+          userContent: query.trim(),
+          maxTokens: 1200,
+          tools: [{ type: 'openrouter:web_search' }],
+        }),
+        '/research',
+        'No pude completar la investigación ahora. Inténtalo de nuevo en un momento.',
+      );
     }
 
     // "test" command
@@ -162,26 +204,35 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       });
     }
 
-    // Study Assistant command skeleton. The handler returns placeholders only.
     if (name === 'study') {
-      const content = handleStudyCommand(data.options);
-      if (!content) {
+      const studyRequest = getStudyCommandRequest(data.options, data.resolved?.attachments);
+      if (studyRequest.error) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: 'Unknown Study Assistant command.',
+            content: studyRequest.error,
             flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
       }
 
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content,
-          flags: InteractionResponseFlags.EPHEMERAL,
-        },
-      });
+      if (!isOpenRouterConfigured()) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
+          },
+        });
+      }
+
+      return deferOpenRouterCommand(
+        res,
+        req,
+        () => buildStudyOpenRouterRequest(studyRequest),
+        `/study ${studyRequest.name}`,
+        'No pude completar la solicitud de estudio ahora. Inténtalo de nuevo en un momento.',
+      );
     }
 
     // "challenge" command

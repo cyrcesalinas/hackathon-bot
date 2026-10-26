@@ -43,6 +43,22 @@ const ASK_COMMAND = {
   contexts: [0, 1, 2],
 };
 
+const RESEARCH_COMMAND = {
+  name: 'research',
+  description: 'Research a question with current web sources',
+  options: [
+    {
+      type: 3,
+      name: 'query',
+      description: 'What you want researched',
+      required: true,
+    },
+  ],
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
 // Command containing options
 const CHALLENGE_COMMAND = {
   name: 'challenge',
@@ -84,7 +100,7 @@ const STUDY_COMMAND = {
     {
       type: 1,
       name: 'upload',
-      description: 'Submit a study file (processing is not connected yet)',
+      description: 'Create study notes from a file',
       options: [
         {
           type: 11,
@@ -135,7 +151,7 @@ const STUDY_COMMAND = {
   ],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, STUDY_COMMAND];
+const ALL_COMMANDS = [TEST_COMMAND, ASK_COMMAND, RESEARCH_COMMAND, CHALLENGE_COMMAND, STUDY_COMMAND];
 
 try {
   const installedCommands = await InstallGlobalCommands(

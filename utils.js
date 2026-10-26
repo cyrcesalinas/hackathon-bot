@@ -25,15 +25,19 @@ export async function DiscordRequest(endpoint, options) {
 }
 
 export async function InstallGlobalCommands(appId, commands) {
-  // API endpoint to overwrite global commands
+  // Create or update these commands without deleting other commands on the app.
   const endpoint = `applications/${appId}/commands`;
-  // This is calling the bulk overwrite endpoint: https://discord.com/developers/docs/interactions/application-commands#bulk-overwrite-global-application-commands
-  const response = await DiscordRequest(endpoint, {
-    method: 'PUT',
-    body: commands,
-  });
+  const installedCommands = [];
 
-  return response.json();
+  for (const command of commands) {
+    const response = await DiscordRequest(endpoint, {
+      method: 'POST',
+      body: command,
+    });
+    installedCommands.push(await response.json());
+  }
+
+  return installedCommands;
 }
 
 // Simple method that returns a random emoji from list

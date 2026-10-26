@@ -62,7 +62,9 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 OPENROUTER_MODEL=provider/model
 ```
 
-The `/ask` command sends one question to the configured model and returns a private response. Each invocation is a separate request; the bot does not retain conversation history.
+The bot uses the configured OpenRouter model for `/ask`, `/research`, and the `/study` subcommands. `/research` enables OpenRouter's `openrouter:web_search` tool and asks for direct source links. Each invocation is a separate request; the bot does not retain conversation history.
+
+`/study guide` accepts a topic, a file, or both. `/study upload` analyzes an attached file and returns study notes immediately. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB. The bot downloads a file only to process that command and does not keep it for later commands; attach it again when requesting a guide. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.
 
 ### Install slash commands
 
