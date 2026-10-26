@@ -17,24 +17,15 @@ function createCommandChoices() {
   return commandChoices;
 }
 
-// Simple test command
-const TEST_COMMAND = {
-  name: 'test',
-  description: 'Basic command',
-  type: 1,
-  integration_types: [0, 1],
-  contexts: [0, 1, 2],
-};
-
 // Ask an LLM a question using OpenRouter
 const ASK_COMMAND = {
   name: 'ask',
-  description: 'Ask the AI assistant a question',
+  description: 'Ask Lian a question',
   options: [
     {
       type: 3,
       name: 'prompt',
-      description: 'Your question for the AI assistant',
+      description: 'Your question for Lian',
       required: true,
     },
   ],
@@ -60,26 +51,10 @@ const RESEARCH_COMMAND = {
 };
 
 // Command containing options
-const CHALLENGE_COMMAND = {
-  name: 'challenge',
-  description: 'Challenge to a match of rock paper scissors',
-  options: [
-    {
-      type: 3,
-      name: 'object',
-      description: 'Pick your object',
-      required: true,
-      choices: createCommandChoices(),
-    },
-  ],
-  type: 1,
-  integration_types: [0, 1],
-  contexts: [0, 2],
-};
 
 const STUDY_COMMAND = {
   name: 'study',
-  description: 'Use a Study Assistant tool',
+  description: 'Use a Lian + Assistant tool',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
@@ -151,7 +126,7 @@ const STUDY_COMMAND = {
   ],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, ASK_COMMAND, RESEARCH_COMMAND, CHALLENGE_COMMAND, STUDY_COMMAND];
+const ALL_COMMANDS = [ASK_COMMAND, RESEARCH_COMMAND, STUDY_COMMAND];
 
 try {
   const installedCommands = await InstallGlobalCommands(

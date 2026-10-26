@@ -235,17 +235,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       );
     }
 
-    // Research command skeleton. It accepts a link or topic without fetching it yet.
-    if (name === 'research') {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: handleResearchCommand(data.options),
-          flags: InteractionResponseFlags.EPHEMERAL,
-        },
-      });
-    }
-
     // "challenge" command
     if (name === 'challenge' && id) {
       // User ID is in the member field for servers and the user field for DMs.
