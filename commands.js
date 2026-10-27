@@ -18,6 +18,15 @@ function createCommandChoices() {
   return commandChoices;
 }
 
+// Simple test command
+const TEST_COMMAND = {
+  name: 'test',
+  description: 'Basic command',
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
 // Ask an LLM a question using OpenRouter
 const ASK_COMMAND = {
   name: 'ask',
@@ -35,6 +44,70 @@ const ASK_COMMAND = {
   contexts: [0, 1, 2],
 };
 
+const DEV_COMMAND = {
+  name: 'dev',
+  description: 'Get engineering help for your project',
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+  options: [
+    {
+      type: 1,
+      name: 'ask',
+      description: 'Ask how to implement something',
+      options: [
+        {
+          type: 3,
+          name: 'question',
+          description: 'What you want to build or understand',
+          required: true,
+          max_length: 1500,
+        },
+        {
+          type: 11,
+          name: 'context',
+          description: 'Optional Markdown, text, or source-code context (up to 1 MB)',
+          required: false,
+        },
+      ],
+    },
+  ],
+};
+
+const DB_COMMAND = {
+  name: 'db',
+  description: 'Ask questions about approved database data',
+  type: 1,
+  integration_types: [0],
+  contexts: [0],
+  options: [
+    {
+      type: 1,
+      name: 'status',
+      description: 'Check the bot connection to ADB',
+    },
+    {
+      type: 1,
+      name: 'scan',
+      description: 'Admin: discover schema tables and views for the approved catalog',
+    },
+    {
+      type: 1,
+      name: 'lookup',
+      description: 'Query schema data; do not request or share sensitive information',
+      options: [
+        {
+          type: 3,
+          name: 'question',
+          description: 'What you would like to look up',
+          required: true,
+          max_length: 500,
+        },
+      ],
+    },
+  ],
+};
+
 const RESEARCH_COMMAND = {
   name: 'research',
   description: 'Research a topic on the web and get cited sources',
@@ -49,6 +122,24 @@ const RESEARCH_COMMAND = {
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
+};
+
+// Command containing options
+const CHALLENGE_COMMAND = {
+  name: 'challenge',
+  description: 'Challenge to a match of rock paper scissors',
+  options: [
+    {
+      type: 3,
+      name: 'object',
+      description: 'Pick your object',
+      required: true,
+      choices: createCommandChoices(),
+    },
+  ],
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 2],
 };
 
 // Command containing options
@@ -110,7 +201,158 @@ const OCI_COMMAND = {
   ],
 };
 
-const ALL_COMMANDS = [ASK_COMMAND, RESEARCH_COMMAND, STUDY_COMMAND, OCI_COMMAND];
+const AGENT_COMMAND = {
+  name: 'agent',
+  description: 'Create and use your own learning agents',
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+  options: [
+    {
+      type: 1,
+      name: 'create',
+      description: 'Build and preview a private learning agent',
+      options: [
+        {
+          type: 3,
+          name: 'name',
+          description: 'A short name for your agent',
+          required: true,
+          max_length: 32,
+        },
+        {
+          type: 3,
+          name: 'goal',
+          description: 'What should this agent help you do?',
+          required: true,
+          max_length: 1000,
+        },
+        {
+          type: 3,
+          name: 'style',
+          description: 'How should it explain or respond?',
+          required: true,
+          max_length: 300,
+        },
+        {
+          type: 3,
+          name: 'capability',
+          description: 'Choose what this agent can do',
+          required: true,
+          choices: [
+            { name: 'Chat', value: 'chat' },
+            { name: 'Study help with files', value: 'study' },
+            { name: 'Web research', value: 'research' },
+          ],
+        },
+      ],
+    },
+    {
+      type: 1,
+      name: 'list',
+      description: 'Show your saved agents',
+    },
+    {
+      type: 1,
+      name: 'run',
+      description: 'Give one of your agents a task',
+      options: [
+        {
+          type: 3,
+          name: 'name',
+          description: 'Your agent name',
+          required: true,
+          max_length: 32,
+        },
+        {
+          type: 3,
+          name: 'task',
+          description: 'What you want the agent to help with',
+          required: true,
+          max_length: 1500,
+        },
+        {
+          type: 11,
+          name: 'file',
+          description: 'Optional study file (study agents only)',
+          required: false,
+        },
+      ],
+    },
+    {
+      type: 1,
+      name: 'edit',
+      description: 'Change one of your agents',
+      options: [
+        {
+          type: 3,
+          name: 'name',
+          description: 'Current agent name',
+          required: true,
+          max_length: 32,
+        },
+        {
+          type: 3,
+          name: 'new_name',
+          description: 'New name',
+          required: false,
+          max_length: 32,
+        },
+        {
+          type: 3,
+          name: 'goal',
+          description: 'New goal',
+          required: false,
+          max_length: 1000,
+        },
+        {
+          type: 3,
+          name: 'style',
+          description: 'New response style',
+          required: false,
+          max_length: 300,
+        },
+        {
+          type: 3,
+          name: 'capability',
+          description: 'New capability',
+          required: false,
+          choices: [
+            { name: 'Chat', value: 'chat' },
+            { name: 'Study help with files', value: 'study' },
+            { name: 'Web research', value: 'research' },
+          ],
+        },
+      ],
+    },
+    {
+      type: 1,
+      name: 'delete',
+      description: 'Delete one of your agents',
+      options: [
+        {
+          type: 3,
+          name: 'name',
+          description: 'Agent name',
+          required: true,
+          max_length: 32,
+        },
+      ],
+    },
+  ],
+};
+
+const ALL_COMMANDS = [
+  TEST_COMMAND,
+  ASK_COMMAND,
+  DEV_COMMAND,
+  DB_COMMAND,
+  RESEARCH_COMMAND,
+  CHALLENGE_COMMAND,
+  STUDY_COMMAND,
+  OCI_COMMAND,
+  AGENT_COMMAND,
+];
 
 try {
   const installedCommands = await InstallGlobalCommands(

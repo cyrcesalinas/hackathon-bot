@@ -1,3 +1,14 @@
 node_modules
 .env
 bin/ngrok
+
+# Oracle ADB wallets and client credentials
+wallet/
+Wallet_*/
+*wallet*.zip
+ewallet.pem
+ewallet.p12
+cwallet.sso
+keystore.jks
+truststore.jks
+ojdbc.properties

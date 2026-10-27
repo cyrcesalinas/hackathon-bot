@@ -32,6 +32,7 @@ export async function getOpenRouterAnswer({
   maxTokens = 900,
   tools,
   plugins,
+  provider,
 }) {
   if (!isOpenRouterConfigured()) {
     throw new Error('OpenRouter configuration is missing');
@@ -51,6 +52,7 @@ export async function getOpenRouterAnswer({
   };
 
   if (plugins) requestBody.plugins = plugins;
+  if (provider) requestBody.provider = provider;
 
   const response = await fetch(OPENROUTER_API_URL, {
     method: 'POST',
@@ -63,7 +65,17 @@ export async function getOpenRouterAnswer({
   });
 
   if (!response.ok) {
-    throw new Error(`OpenRouter returned HTTP ${response.status}`);
+    let detail = '';
+    try {
+      const errorBody = await response.json();
+      const message = errorBody?.error?.message ?? errorBody?.message;
+      if (typeof message === 'string') detail = message.slice(0, 300);
+    } catch {
+      // Preserve the status even when the provider returns a non-JSON error.
+    }
+    throw new Error(
+      `OpenRouter returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`,
+    );
   }
 
   const result = await response.json();
