@@ -243,9 +243,10 @@ function handleAgentCommand(res, req) {
   }
 
   const subcommand = req.body.data.options?.find((option) => option.type === 1);
+  const action = subcommand?.name;
   const options = subcommand?.options ?? [];
 
-  if (subcommand?.name === 'create') {
+  if (action === 'create') {
     let profile;
     try {
       profile = validateNewAgent({
@@ -302,7 +303,7 @@ function handleAgentCommand(res, req) {
     });
   }
 
-  if (subcommand?.name === 'list') {
+  if (action === 'list') {
     return deferAgentOperation(
       res,
       req,
@@ -316,7 +317,7 @@ function handleAgentCommand(res, req) {
     );
   }
 
-  if (subcommand?.name === 'run') {
+  if (action === 'run') {
     const name = getOptionValue(options, 'name');
     const task = getOptionValue(options, 'task');
     const attachmentId = getOptionValue(options, 'file');
@@ -357,7 +358,7 @@ function handleAgentCommand(res, req) {
     );
   }
 
-  if (subcommand?.name === 'edit') {
+  if (action === 'edit') {
     const name = getOptionValue(options, 'name');
     const patch = {};
     const newName = getOptionValue(options, 'new_name');
@@ -383,7 +384,7 @@ function handleAgentCommand(res, req) {
     );
   }
 
-  if (subcommand?.name === 'delete') {
+  if (action === 'delete') {
     const name = getOptionValue(options, 'name');
     if (typeof name !== 'string' || !name.trim()) {
       return res.send({
@@ -407,7 +408,7 @@ function handleAgentCommand(res, req) {
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
       flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose create, list, run, edit, or delete for /agent.',
+      content: 'Choose a subcommand: /agent create, /agent delete, /agent edit, /agent list, or /agent run.',
     },
   });
 }

@@ -65,6 +65,22 @@ export async function InstallGlobalCommands(appId, commands) {
   return installedCommands;
 }
 
+export async function RemoveGlobalCommands(appId, commandNames) {
+  const endpoint = `applications/${appId}/commands`;
+  const response = await DiscordRequest(endpoint, { method: 'GET' });
+  const installedCommands = await response.json();
+  const namesToRemove = new Set(commandNames);
+  const removedCommands = [];
+
+  for (const command of installedCommands) {
+    if (!namesToRemove.has(command.name)) continue;
+    await DiscordRequest(`${endpoint}/${command.id}`, { method: 'DELETE' });
+    removedCommands.push(command.name);
+  }
+
+  return removedCommands;
+}
+
 // Simple method that returns a random emoji from list
 export function getRandomEmoji() {
   const emojiList = ['😭','😄','😌','🤓','😎','😤','🤖','😶‍🌫️','🌏','📸','💿','👋','🌊','✨'];

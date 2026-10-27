@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { getRPSChoices } from './game.js';
-import { capitalize, InstallGlobalCommands } from './utils.js';
+import { capitalize, InstallGlobalCommands, RemoveGlobalCommands } from './utils.js';
 import { OCI_TOPICS } from './agents/oci.js';
 
 // Get the game choices from game.js
@@ -201,9 +201,9 @@ const OCI_COMMAND = {
   ],
 };
 
-const AGENT_COMMAND = {
+const AGENTS_COMMAND = {
   name: 'agent',
-  description: 'Create and use your own learning agents',
+  description: 'Create, manage, and run your private learning agents',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
@@ -211,112 +211,16 @@ const AGENT_COMMAND = {
     {
       type: 1,
       name: 'create',
-      description: 'Build and preview a private learning agent',
+      description: 'Create and preview a private learning agent',
       options: [
-        {
-          type: 3,
-          name: 'name',
-          description: 'A short name for your agent',
-          required: true,
-          max_length: 32,
-        },
-        {
-          type: 3,
-          name: 'goal',
-          description: 'What should this agent help you do?',
-          required: true,
-          max_length: 1000,
-        },
-        {
-          type: 3,
-          name: 'style',
-          description: 'How should it explain or respond?',
-          required: true,
-          max_length: 300,
-        },
+        { type: 3, name: 'name', description: 'Name for your agent', required: true, max_length: 32 },
+        { type: 3, name: 'goal', description: 'What should this agent help you learn or build?', required: true, max_length: 1000 },
+        { type: 3, name: 'style', description: 'How should it explain or respond?', required: true, max_length: 300 },
         {
           type: 3,
           name: 'capability',
-          description: 'Choose what this agent can do',
+          description: 'Choose what the agent can do',
           required: true,
-          choices: [
-            { name: 'Chat', value: 'chat' },
-            { name: 'Study help with files', value: 'study' },
-            { name: 'Web research', value: 'research' },
-          ],
-        },
-      ],
-    },
-    {
-      type: 1,
-      name: 'list',
-      description: 'Show your saved agents',
-    },
-    {
-      type: 1,
-      name: 'run',
-      description: 'Give one of your agents a task',
-      options: [
-        {
-          type: 3,
-          name: 'name',
-          description: 'Your agent name',
-          required: true,
-          max_length: 32,
-        },
-        {
-          type: 3,
-          name: 'task',
-          description: 'What you want the agent to help with',
-          required: true,
-          max_length: 1500,
-        },
-        {
-          type: 11,
-          name: 'file',
-          description: 'Optional study file (study agents only)',
-          required: false,
-        },
-      ],
-    },
-    {
-      type: 1,
-      name: 'edit',
-      description: 'Change one of your agents',
-      options: [
-        {
-          type: 3,
-          name: 'name',
-          description: 'Current agent name',
-          required: true,
-          max_length: 32,
-        },
-        {
-          type: 3,
-          name: 'new_name',
-          description: 'New name',
-          required: false,
-          max_length: 32,
-        },
-        {
-          type: 3,
-          name: 'goal',
-          description: 'New goal',
-          required: false,
-          max_length: 1000,
-        },
-        {
-          type: 3,
-          name: 'style',
-          description: 'New response style',
-          required: false,
-          max_length: 300,
-        },
-        {
-          type: 3,
-          name: 'capability',
-          description: 'New capability',
-          required: false,
           choices: [
             { name: 'Chat', value: 'chat' },
             { name: 'Study help with files', value: 'study' },
@@ -328,15 +232,46 @@ const AGENT_COMMAND = {
     {
       type: 1,
       name: 'delete',
-      description: 'Delete one of your agents',
+      description: 'Delete one of your private agents',
       options: [
+        { type: 3, name: 'name', description: 'Name of the agent to delete', required: true, max_length: 32 },
+      ],
+    },
+    {
+      type: 1,
+      name: 'edit',
+      description: 'Change one of your private agents',
+      options: [
+        { type: 3, name: 'name', description: 'Current name of the agent', required: true, max_length: 32 },
+        { type: 3, name: 'new_name', description: 'New name for the agent', required: false, max_length: 32 },
+        { type: 3, name: 'goal', description: 'What should this agent help you learn or build?', required: false, max_length: 1000 },
+        { type: 3, name: 'style', description: 'How should it explain or respond?', required: false, max_length: 300 },
         {
           type: 3,
-          name: 'name',
-          description: 'Agent name',
-          required: true,
-          max_length: 32,
+          name: 'capability',
+          description: 'Change what the agent can do',
+          required: false,
+          choices: [
+            { name: 'Chat', value: 'chat' },
+            { name: 'Study help with files', value: 'study' },
+            { name: 'Web research', value: 'research' },
+          ],
         },
+      ],
+    },
+    {
+      type: 1,
+      name: 'list',
+      description: 'Show your saved private agents',
+    },
+    {
+      type: 1,
+      name: 'run',
+      description: 'Give one of your private agents a task',
+      options: [
+        { type: 3, name: 'name', description: 'Name of the agent to run', required: true, max_length: 32 },
+        { type: 3, name: 'task', description: 'What should the agent help you with?', required: true, max_length: 1500 },
+        { type: 11, name: 'file', description: 'Optional study file (for study agents)', required: false },
       ],
     },
   ],
@@ -351,7 +286,7 @@ const ALL_COMMANDS = [
   CHALLENGE_COMMAND,
   STUDY_COMMAND,
   OCI_COMMAND,
-  AGENT_COMMAND,
+  AGENTS_COMMAND,
 ];
 
 try {
@@ -359,8 +294,12 @@ try {
     process.env.APP_ID,
     ALL_COMMANDS,
   );
+  const removedCommands = await RemoveGlobalCommands(process.env.APP_ID, ['agents']);
   const commandNames = installedCommands.map(({ name }) => `/${name}`).join(', ');
   console.log(`Installed ${installedCommands.length} global commands: ${commandNames}`);
+  if (removedCommands.length) {
+    console.log(`Removed legacy global commands: ${removedCommands.map((name) => `/${name}`).join(', ')}`);
+  }
 } catch (err) {
   console.error('Failed to install global commands:', err);
   process.exitCode = 1;
