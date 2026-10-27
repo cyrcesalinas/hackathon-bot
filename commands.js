@@ -89,12 +89,12 @@ const DB_COMMAND = {
     {
       type: 1,
       name: 'scan',
-      description: 'Admin: discover candidate ADB views for the approved catalog',
+      description: 'Admin: discover schema tables and views for the approved catalog',
     },
     {
       type: 1,
       name: 'lookup',
-      description: 'Ask a natural-language question about approved data',
+      description: 'Query schema data; do not request or share sensitive information',
       options: [
         {
           type: 3,

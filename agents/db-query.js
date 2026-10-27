@@ -1,5 +1,5 @@
 import { getOpenRouterAnswer, isOpenRouterConfigured } from '../openrouter.js';
-import { ADB_QUERY_CATALOG } from '../db/catalog.js';
+import { refreshAdbCatalog } from '../db/catalog-scan.js';
 import { isAdbConfigured } from '../db/connection.js';
 import {
   AdbQueryPlanError,
@@ -34,9 +34,6 @@ export async function answerAdbQuestion(question) {
   if (!isAdbConfigured()) {
     throw new DbAssistantError('The ADB connection is not configured yet. Contact the bot administrator.', 'ADB_NOT_CONFIGURED');
   }
-  if (!hasAdbQueryCatalog()) {
-    throw new DbAssistantError('No approved database query types are configured yet. Contact the bot administrator.', 'ADB_CATALOG_EMPTY');
-  }
   if (!isOpenRouterConfigured()) {
     throw new DbAssistantError('The database question service is not configured yet. Contact the bot administrator.', 'OPENROUTER_NOT_CONFIGURED');
   }
@@ -44,6 +41,16 @@ export async function answerAdbQuestion(question) {
   const cleanQuestion = typeof question === 'string' ? question.trim().slice(0, 500) : '';
   if (!cleanQuestion) {
     throw new DbAssistantError('Enter a database question to continue.', 'DB_QUESTION_EMPTY');
+  }
+
+  try {
+    await refreshAdbCatalog();
+  } catch (error) {
+    console.error('ADB automatic catalog refresh failed:', error?.code ?? error?.name ?? 'unknown error');
+    throw new DbAssistantError('The automatic database catalog could not be loaded. Contact the bot administrator.', 'ADB_CATALOG_REFRESH_FAILED');
+  }
+  if (!hasAdbQueryCatalog()) {
+    throw new DbAssistantError('No supported tables or columns were found in the configured database schema.', 'ADB_CATALOG_EMPTY');
   }
 
   let plannerResponse;

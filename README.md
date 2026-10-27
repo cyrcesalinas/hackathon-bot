@@ -68,7 +68,7 @@ The bot uses the configured OpenRouter model for `/ask`, `/research`, and the `/
 
 `/dev ask` gives implementation guidance. You can attach one optional Markdown, text, or source-code file to provide project context (1 MB maximum). The bot reads only that direct Discord attachment in memory for the request, rejects redirects and non-Discord download hosts, and does not retain the file. The question and file text are sent to OpenRouter with provider routing set to deny data-collecting endpoints. The request does not require a zero-data-retention endpoint. The command does not edit project files, run code, or access a database. For project-specific answers, attach the relevant README or source file; without an attachment, the answer is general guidance.
 
-`/db lookup` maps a natural-language question to a read-only query plan. It only executes plans that match the explicitly approved datasets and columns in `db/catalog.js`; model-generated SQL is never executed. Query results are formatted by the bot and are not sent back to OpenRouter. The question and semantic query catalog are sent to OpenRouter with data-collection endpoints denied; this request does not require ZDR, so users should not include secrets or sensitive identifiers in their question. The bot requires `ADB_USER`, `ADB_PASSWORD`, `ADB_CONNECT_STRING`, `ADB_WALLET_DIR`, and `ADB_WALLET_PASSWORD`. The command is registered only for Discord servers and always replies ephemerally. `ADB_ALLOWED_GUILD_ID` and `ADB_ALLOWED_ROLE_IDS` are optional access restrictions. If both are blank, only members with Administrator or Manage Server permission can use `/db`. Setting a guild ID with no role IDs allows members of that one guild; setting role IDs requires one of those roles. The initial query catalog is empty until the project owner adds approved ADB views and fields. Writes and arbitrary SQL are not supported.
+`/db lookup` maps a natural-language question to a read-only query plan. The bot automatically builds its catalog from every supported column in every table and view owned by `ADB_CATALOG_OWNER` (default: `ADB_USER`); model-generated SQL is never executed. Query results are formatted by the bot and are not sent back to OpenRouter. The question and semantic query catalog are sent to OpenRouter with data-collection endpoints denied; this request does not require ZDR. Because all supported columns are auto-approved, results may contain sensitive information. The bot requires `ADB_USER`, `ADB_PASSWORD`, `ADB_CONNECT_STRING`, `ADB_WALLET_DIR`, and `ADB_WALLET_PASSWORD`. The command is registered only for Discord servers. `ADB_ALLOWED_GUILD_ID` and `ADB_ALLOWED_ROLE_IDS` are optional access restrictions. If both are blank, only members with Administrator or Manage Server permission can use `/db`. Setting a guild ID with no role IDs allows members of that one guild; setting role IDs requires one of those roles. Writes and arbitrary SQL are not supported.
 
 The ADB connection uses the downloaded wallet with node-oracledb Thin mode. Oracle Instant Client is not required by this connection path. Extract the wallet into a directory readable only by the service account. Thin mode uses `tnsnames.ora` to resolve the service alias and `ewallet.pem` for mTLS; `ADB_WALLET_PASSWORD` is the password created when the wallet was downloaded. See [node-oracledb's ADB wallet instructions](https://node-oracledb.readthedocs.io/en/latest/user_guide/connection_handling.html#mutual-tls-connections-to-oracle-cloud-autonomous-database).
 
@@ -82,8 +82,7 @@ ADB_PASSWORD=<database-user-password>
 ADB_CONNECT_STRING=discordadb_low
 ADB_WALLET_DIR=/home/opc/discord-example-app/wallet
 ADB_WALLET_PASSWORD=<wallet-download-password>
-ADB_CATALOG_OWNER=<approved-view-owner>
-ADB_CATALOG_PREFIX=BOT_
+ADB_CATALOG_OWNER=<schema-to-scan>
 ADB_ALLOWED_GUILD_ID=
 ADB_ALLOWED_ROLE_IDS=
 ```
@@ -106,9 +105,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON AGENT_PROFILES TO BOT_AGENT_APP;
 
 `AGENT_STORE_OWNER` is the schema that owns `AGENT_PROFILES`; it must be an unquoted Oracle schema name. The bot uses fixed SQL statements and binds student values. `/agent` stays unavailable until the runtime credentials, table, and grants are configured. The bot stores at most 20 profiles per Discord user. Profiles are owner-private; sharing is not enabled.
 
-`/db scan` is restricted to members with Administrator or Manage Server permission. It reads Oracle metadata for accessible views under `ADB_CATALOG_OWNER` (default: `ADB_USER`) whose names start with `ADB_CATALOG_PREFIX` (default: `BOT_`). It reports matching views and compatible column types ephemerally. A scan never modifies the database or activates a view; pending candidates must still be reviewed and added to `db/catalog.js`.
+`/db scan` is restricted to members with Administrator or Manage Server permission. It reads Oracle metadata for every table and view owned by `ADB_CATALOG_OWNER` (default: `ADB_USER`), auto-approves all supported columns in the runtime catalog, and reports the result. It does not read table rows or modify the database. `/db lookup` refreshes the automatic catalog when needed, so running `/db scan` first is optional.
 
-Each catalog entry in `db/catalog.js` defines one approved view and its user-facing columns, filter operators, grouping, and aggregation permissions. Add only fields that are safe to return in Discord. The query planner only sees this semantic catalog; SQL object names remain in the bot configuration.
+The runtime catalog permits lists, counts, filtering, sorting, grouping, sums, and averages where compatible with the Oracle column type. Responses remain limited to 25 rows, queries use bind variables, and only `SELECT` statements pass the database execution guard. Automatic approval deliberately does not distinguish sensitive application data from other supported columns.
 
 `/study guide` accepts a topic, a file, or both. `/study upload` analyzes an attached file and returns study notes immediately. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB. The bot downloads a file only to process that command and does not keep it for later commands; attach it again when requesting a guide. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.
 
@@ -122,7 +121,7 @@ npm run register
 
 In server channels, the app posts only its command response; it does not create a separate message containing the command inputs. Replies that would otherwise be ephemeral are made public. Commands used in DMs retain their existing visibility behavior.
 
-Run registration after adding or changing commands, then restart `discord-example.service`. `/db status` checks connectivity without returning database contents. `/db scan` discovers scoped candidate views without activating them. `/db lookup` becomes usable after the ADB environment and approved catalog are configured. `/agent` becomes usable after the profile table and separate runtime credentials are configured.
+Run registration after adding or changing commands, then restart `discord-example.service`. `/db status` checks connectivity without returning database contents. `/db scan` refreshes and displays the automatic catalog. `/db lookup` also loads the catalog automatically from the configured schema. `/agent` becomes usable after the profile table and separate runtime credentials are configured.
 
 ### Run the app
 

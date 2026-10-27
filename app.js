@@ -34,7 +34,6 @@ import {
 } from './agents/user-agent.js';
 import { AdbCatalogScanError, scanAdbCatalog } from './db/catalog-scan.js';
 import { closeAgentStorePool, isAgentStoreConfigured } from './db/agent-store.js';
-import { hasAdbQueryCatalog } from './db/query.js';
 import { checkAdbConnection, closeAdbPool, isAdbConfigured } from './db/connection.js';
 
 // Create an express app
@@ -778,16 +777,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
             content: 'The ADB connection is not configured yet. Contact the bot administrator.',
-          },
-        });
-      }
-
-      if (!hasAdbQueryCatalog()) {
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'No approved database query types are configured yet. Contact the bot administrator.',
           },
         });
       }
