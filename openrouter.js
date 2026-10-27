@@ -42,7 +42,7 @@ export async function getOpenRouterAnswer({
     messages: [
       {
         role: 'system',
-        content: `${systemPrompt}\n\nCuando la respuesta dependa de la fecha u hora actuales (por ejemplo, "hoy", "ayer" o "mañana"), consulta la herramienta de fecha y hora antes de responder.`,
+        content: `${systemPrompt}\n\nIf the answer depends on the current date or time (for example, "today," "yesterday," or "tomorrow"), consult the date and time tool before answering.`,
       },
       { role: 'user', content: userContent },
     ],

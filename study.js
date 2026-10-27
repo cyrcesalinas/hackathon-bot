@@ -25,21 +25,21 @@ function getSafeFilename(filename) {
 
 function validateAttachment(attachment) {
   if (!attachment || typeof attachment !== 'object') {
-    return { error: 'No pude encontrar el archivo adjunto. Vuelve a adjuntarlo.' };
+    return { error: "I couldn't find the attachment. Please attach it again." };
   }
 
   if (Number.isFinite(attachment.size) && attachment.size > MAX_STUDY_FILE_BYTES) {
-    return { error: 'El archivo supera el límite de 8 MB.' };
+    return { error: 'The file exceeds the 8 MB limit.' };
   }
 
   const filename = getSafeFilename(attachment.filename);
   const extension = path.extname(filename).toLowerCase();
   if (extension !== '.pdf' && !SUPPORTED_TEXT_EXTENSIONS.has(extension)) {
-    return { error: 'Formato no compatible. Usa PDF, TXT, MD, CSV o JSON.' };
+    return { error: 'Unsupported file type. Use PDF, TXT, MD, CSV, or JSON.' };
   }
 
   if (typeof attachment.url !== 'string' || !attachment.url) {
-    return { error: 'No pude leer el enlace del archivo adjunto. Vuelve a adjuntarlo.' };
+    return { error: "I couldn't read the attachment URL. Please attach it again." };
   }
 
   return { filename, extension, url: attachment.url };
@@ -52,7 +52,7 @@ export function getStudyCommandRequest(commandOptions = [], resolvedAttachments 
   const name = legacySubcommand?.name ?? getOptionValue(options, 'mode');
 
   if (!['ask', 'exam', 'guide', 'upload'].includes(name)) {
-    return { error: 'No reconozco ese comando de estudio.' };
+    return { error: "I don't recognize that study activity." };
   }
 
   const inputValue = getOptionValue(options, 'input');
@@ -69,13 +69,13 @@ export function getStudyCommandRequest(commandOptions = [], resolvedAttachments 
     if (validation.error) return validation;
     attachment = { ...validation, size: attachment.size };
   } else if (attachmentId !== undefined) {
-    return { error: 'No pude reconocer el archivo adjunto. Vuelve a adjuntarlo.' };
+    return { error: "I couldn't identify the attachment. Please attach it again." };
   }
 
-  if (name === 'ask' && !question) return { error: 'Escribe una pregunta de estudio.' };
-  if (name === 'upload' && !attachment) return { error: 'Adjunta un archivo de estudio.' };
+  if (name === 'ask' && !question) return { error: 'Enter a study question.' };
+  if (name === 'upload' && !attachment) return { error: 'Attach a study file.' };
   if ((name === 'guide' || name === 'exam') && !topic && !attachment) {
-    return { error: 'Escribe un tema o adjunta un archivo de estudio.' };
+    return { error: 'Enter a topic or attach a study file.' };
   }
 
   return { name, question, topic, attachment };
@@ -86,7 +86,7 @@ async function readAttachmentWithinLimit(attachment) {
   try {
     url = new URL(attachment.url);
   } catch {
-    throw new StudyFileError('No pude leer el enlace del archivo adjunto. Vuelve a adjuntarlo.');
+    throw new StudyFileError("I couldn't read the attachment URL. Please attach it again.");
   }
 
   if (
@@ -96,7 +96,7 @@ async function readAttachmentWithinLimit(attachment) {
     url.password ||
     !DISCORD_ATTACHMENT_HOSTS.has(url.hostname)
   ) {
-    throw new StudyFileError('El archivo debe ser un adjunto directo de Discord.');
+    throw new StudyFileError('The file must be attached directly in Discord.');
   }
 
   let response;
@@ -106,19 +106,19 @@ async function readAttachmentWithinLimit(attachment) {
       signal: AbortSignal.timeout(20_000),
     });
   } catch {
-    throw new StudyFileError('No pude descargar el archivo desde Discord. Inténtalo de nuevo.');
+    throw new StudyFileError("I couldn't download the file from Discord. Please try again.");
   }
 
   if (!response.ok) {
-    throw new StudyFileError('Discord no pudo entregar el archivo. Vuelve a adjuntarlo.');
+    throw new StudyFileError("Discord couldn't provide the file. Please attach it again.");
   }
 
   const contentLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > MAX_STUDY_FILE_BYTES) {
-    throw new StudyFileError('El archivo supera el límite de 8 MB.');
+    throw new StudyFileError('The file exceeds the 8 MB limit.');
   }
 
-  if (!response.body) throw new StudyFileError('Discord devolvió un archivo vacío.');
+  if (!response.body) throw new StudyFileError('Discord returned an empty file.');
 
   const reader = response.body.getReader();
   const chunks = [];
@@ -131,24 +131,24 @@ async function readAttachmentWithinLimit(attachment) {
       totalBytes += value.byteLength;
       if (totalBytes > MAX_STUDY_FILE_BYTES) {
         await reader.cancel();
-        throw new StudyFileError('El archivo supera el límite de 8 MB.');
+        throw new StudyFileError('The file exceeds the 8 MB limit.');
       }
       chunks.push(Buffer.from(value));
     }
   } catch (error) {
     if (error instanceof StudyFileError) throw error;
-    throw new StudyFileError('No pude leer el archivo adjunto. Vuelve a adjuntarlo.');
+    throw new StudyFileError("I couldn't read the attachment. Please attach it again.");
   }
 
-  if (totalBytes === 0) throw new StudyFileError('El archivo está vacío.');
+  if (totalBytes === 0) throw new StudyFileError('The file is empty.');
   return Buffer.concat(chunks, totalBytes);
 }
 
 function getTaskPrompt(request) {
-  if (request.name === 'ask') return `Pregunta del estudiante: ${request.question}`;
-  if (request.name === 'exam') return `Tema del examen: ${request.topic || 'usa el archivo adjunto'}`;
-  if (request.name === 'guide') return `Tema de la guía: ${request.topic || 'usa el archivo adjunto'}`;
-  return 'Analiza el archivo adjunto y prepara apuntes de estudio.';
+  if (request.name === 'ask') return `Student question: ${request.question}`;
+  if (request.name === 'exam') return `Exam topic: ${request.topic || 'use the attached file'}`;
+  if (request.name === 'guide') return `Study guide topic: ${request.topic || 'use the attached file'}`;
+  return 'Analyze the attached file and prepare study notes.';
 }
 
 export async function buildStudyOpenRouterRequest(request) {
@@ -168,7 +168,7 @@ export async function buildStudyOpenRouterRequest(request) {
 
   if (request.attachment.extension === '.pdf') {
     if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
-      throw new StudyFileError('El archivo tiene extensión PDF, pero su contenido no parece ser un PDF válido.');
+      throw new StudyFileError('The file has a PDF extension, but its contents do not appear to be a valid PDF.');
     }
 
     return {
@@ -192,13 +192,13 @@ export async function buildStudyOpenRouterRequest(request) {
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    throw new StudyFileError('El archivo debe contener texto UTF-8 válido.');
+    throw new StudyFileError('The file must contain valid UTF-8 text.');
   }
 
   if (text.includes('\u0000')) {
-    throw new StudyFileError('El archivo no parece ser texto UTF-8 válido.');
+    throw new StudyFileError('The file does not appear to contain valid UTF-8 text.');
   }
-  if (!text.trim()) throw new StudyFileError('El archivo no contiene texto para estudiar.');
+  if (!text.trim()) throw new StudyFileError('The file does not contain any text to study.');
 
   const truncated = Array.from(text).length > MAX_STUDY_TEXT_CHARS;
   if (truncated) text = Array.from(text).slice(0, MAX_STUDY_TEXT_CHARS).join('');
@@ -209,7 +209,7 @@ export async function buildStudyOpenRouterRequest(request) {
       { type: 'text', text: `${taskPrompt}\nMaterial adjunto: ${filename}` },
       {
         type: 'text',
-        text: `Contenido del archivo:\n${text}${truncated ? '\n\n[El archivo se recortó para ajustarse al límite de procesamiento.]' : ''}`,
+        text: `File contents:\n${text}${truncated ? '\n\n[The file was shortened to fit the processing limit.]' : ''}`,
       },
     ],
     maxTokens: request.name === 'exam' || request.name === 'guide' ? 1400 : 900,

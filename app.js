@@ -122,7 +122,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Escribe una pregunta para el asistente.',
+            content: 'Enter a question for the assistant.',
           },
         });
       }
@@ -132,7 +132,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
+            content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
           },
         });
       }
@@ -146,7 +146,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           maxTokens: 800,
         }),
         '/ask',
-        'No pude obtener una respuesta ahora. Inténtalo de nuevo en un momento.',
+        "I couldn't get an answer right now. Please try again shortly.",
       );
     }
 
@@ -158,7 +158,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Escribe una pregunta o tema para investigar.',
+            content: 'Enter a question or topic to research.',
           },
         });
       }
@@ -168,7 +168,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
+            content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
           },
         });
       }
@@ -183,7 +183,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           tools: [{ type: 'openrouter:web_search' }],
         }),
         '/research',
-        'No pude completar la investigación ahora. Inténtalo de nuevo en un momento.',
+        "I couldn't complete the research right now. Please try again shortly.",
       );
     }
 
@@ -197,7 +197,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Elige un tema de OCI y escribe una pregunta.',
+            content: 'Choose an OCI topic and enter a question.',
           },
         });
       }
@@ -207,7 +207,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
+            content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
           },
         });
       }
@@ -222,7 +222,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           tools: [{ type: 'openrouter:web_search' }],
         }),
         `/oci ${topic.value}`,
-        'No pude responder la consulta de OCI ahora. Inténtalo de nuevo en un momento.',
+        "I couldn't answer this OCI question right now. Please try again shortly.",
       );
     }
 
@@ -261,7 +261,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
+            content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
           },
         });
       }
@@ -271,7 +271,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         req,
         () => buildStudyOpenRouterRequest(studyRequest),
         `/study ${studyRequest.name}`,
-        'No pude completar la solicitud de estudio ahora. Inténtalo de nuevo en un momento.',
+        "I couldn't complete the study request right now. Please try again shortly.",
       );
     }
 
