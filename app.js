@@ -49,8 +49,6 @@ const recentAgentRunsByUser = new Map();
 let recentAgentRunsGlobal = [];
 const pendingAgentDrafts = new Map();
 
-const DISCORD_PERMISSION_ADMINISTRATOR = 1n << 3n;
-const DISCORD_PERMISSION_MANAGE_GUILD = 1n << 5n;
 const ADB_REQUESTS_PER_USER_PER_MINUTE = 5;
 const ADB_REQUESTS_GLOBAL_PER_MINUTE = 30;
 const AGENT_RUNS_PER_USER_PER_MINUTE = 5;
@@ -480,57 +478,6 @@ function handleAgentDraftButton(res, req, componentId) {
   );
 }
 
-function hasAdbPermission(req) {
-  const requiredGuildId = process.env.ADB_ALLOWED_GUILD_ID?.trim();
-  const allowedRoleIds = (process.env.ADB_ALLOWED_ROLE_IDS ?? '')
-    .split(',')
-    .map((roleId) => roleId.trim())
-    .filter(Boolean);
-
-  // Database commands are server-only even if a stale global command is still
-  // visible in a DM before Discord finishes propagating command updates.
-  if (!req.body.guild_id || !req.body.member) return false;
-
-  if (requiredGuildId && req.body.guild_id !== requiredGuildId) {
-    return false;
-  }
-
-  if (allowedRoleIds.length) {
-    const memberRoleIds = req.body.member.roles;
-    return Array.isArray(memberRoleIds) && allowedRoleIds.some((roleId) => memberRoleIds.includes(roleId));
-  }
-
-  // A configured guild intentionally permits its members when no role filter
-  // is configured. With no access settings at all, fail closed to guild admins.
-  if (requiredGuildId) return true;
-
-  try {
-    const permissions = BigInt(req.body.member.permissions ?? '0');
-    return Boolean(
-      permissions & DISCORD_PERMISSION_ADMINISTRATOR ||
-      permissions & DISCORD_PERMISSION_MANAGE_GUILD
-    );
-  } catch {
-    return false;
-  }
-}
-
-function hasAdbAdminPermission(req) {
-  const requiredGuildId = process.env.ADB_ALLOWED_GUILD_ID?.trim();
-  if (!req.body.guild_id || !req.body.member) return false;
-  if (requiredGuildId && req.body.guild_id !== requiredGuildId) return false;
-
-  try {
-    const permissions = BigInt(req.body.member.permissions ?? '0');
-    return Boolean(
-      permissions & DISCORD_PERMISSION_ADMINISTRATOR ||
-      permissions & DISCORD_PERMISSION_MANAGE_GUILD
-    );
-  } catch {
-    return false;
-  }
-}
-
 function isAdbRateLimited(req) {
   const userId = req.body.member?.user?.id ?? req.body.user?.id;
   if (!userId) return true;
@@ -705,21 +652,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
             content: 'Choose an action for /db.',
-          },
-        });
-      }
-
-      const hasPermission = action === 'scan'
-        ? hasAdbAdminPermission(req)
-        : hasAdbPermission(req);
-      if (!hasPermission) {
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            flags: InteractionResponseFlags.EPHEMERAL,
-            content: action === 'scan'
-              ? 'The database catalog scan is restricted to server administrators.'
-              : 'This database command is restricted to an approved server or role.',
           },
         });
       }

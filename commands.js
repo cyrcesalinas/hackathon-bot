@@ -87,7 +87,7 @@ const DB_COMMAND = {
       description: 'Choose a database action',
       required: true,
       choices: [
-        { name: 'Admin: discover schema tables and views for the approved catalog', value: 'scan' },
+        { name: 'Discover schema tables and views for the approved catalog', value: 'scan' },
         { name: 'Check the bot connection to ADB', value: 'status' },
         { name: 'Query schema data; do not request or share sensitive information', value: 'lookup' },
       ],
