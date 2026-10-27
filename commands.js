@@ -82,28 +82,22 @@ const DB_COMMAND = {
   contexts: [0],
   options: [
     {
-      type: 1,
-      name: 'status',
-      description: 'Check the bot connection to ADB',
-    },
-    {
-      type: 1,
-      name: 'scan',
-      description: 'Admin: discover schema tables and views for the approved catalog',
-    },
-    {
-      type: 1,
-      name: 'lookup',
-      description: 'Query schema data; do not request or share sensitive information',
-      options: [
-        {
-          type: 3,
-          name: 'question',
-          description: 'What you would like to look up',
-          required: true,
-          max_length: 500,
-        },
+      type: 3,
+      name: 'action',
+      description: 'Choose a database action',
+      required: true,
+      choices: [
+        { name: 'Admin: discover schema tables and views for the approved catalog', value: 'scan' },
+        { name: 'Check the bot connection to ADB', value: 'status' },
+        { name: 'Query schema data; do not request or share sensitive information', value: 'lookup' },
       ],
+    },
+    {
+      type: 3,
+      name: 'question',
+      description: 'Question for Query schema data only',
+      required: false,
+      max_length: 500,
     },
   ],
 };
@@ -201,7 +195,7 @@ const OCI_COMMAND = {
   ],
 };
 
-const AGENTS_COMMAND = {
+const AGENT_COMMAND = {
   name: 'agent',
   description: 'Create, manage, and run your private learning agents',
   type: 1,
@@ -209,71 +203,35 @@ const AGENTS_COMMAND = {
   contexts: [0, 1, 2],
   options: [
     {
-      type: 1,
-      name: 'create',
-      description: 'Create and preview a private learning agent',
-      options: [
-        { type: 3, name: 'name', description: 'Name for your agent', required: true, max_length: 32 },
-        { type: 3, name: 'goal', description: 'What should this agent help you learn or build?', required: true, max_length: 1000 },
-        { type: 3, name: 'style', description: 'How should it explain or respond?', required: true, max_length: 300 },
-        {
-          type: 3,
-          name: 'capability',
-          description: 'Choose what the agent can do',
-          required: true,
-          choices: [
-            { name: 'Chat', value: 'chat' },
-            { name: 'Study help with files', value: 'study' },
-            { name: 'Web research', value: 'research' },
-          ],
-        },
+      type: 3,
+      name: 'action',
+      description: 'Choose what to do with your agents',
+      required: true,
+      choices: [
+        { name: 'Create agent', value: 'create' },
+        { name: 'Delete agent', value: 'delete' },
+        { name: 'Edit agent', value: 'edit' },
+        { name: 'List saved agents', value: 'list' },
+        { name: 'Run an agent', value: 'run' },
       ],
     },
+    { type: 3, name: 'name', description: 'Agent name (used for create, edit, delete, or run)', required: false, max_length: 32 },
+    { type: 3, name: 'goal', description: 'What should this agent help you learn or build? (create or edit)', required: false, max_length: 1000 },
+    { type: 3, name: 'style', description: 'How should it explain or respond? (create or edit)', required: false, max_length: 300 },
     {
-      type: 1,
-      name: 'delete',
-      description: 'Delete one of your private agents',
-      options: [
-        { type: 3, name: 'name', description: 'Name of the agent to delete', required: true, max_length: 32 },
+      type: 3,
+      name: 'capability',
+      description: 'Agent capability (create or edit)',
+      required: false,
+      choices: [
+        { name: 'Chat', value: 'chat' },
+        { name: 'Study help with files', value: 'study' },
+        { name: 'Web research', value: 'research' },
       ],
     },
-    {
-      type: 1,
-      name: 'edit',
-      description: 'Change one of your private agents',
-      options: [
-        { type: 3, name: 'name', description: 'Current name of the agent', required: true, max_length: 32 },
-        { type: 3, name: 'new_name', description: 'New name for the agent', required: false, max_length: 32 },
-        { type: 3, name: 'goal', description: 'What should this agent help you learn or build?', required: false, max_length: 1000 },
-        { type: 3, name: 'style', description: 'How should it explain or respond?', required: false, max_length: 300 },
-        {
-          type: 3,
-          name: 'capability',
-          description: 'Change what the agent can do',
-          required: false,
-          choices: [
-            { name: 'Chat', value: 'chat' },
-            { name: 'Study help with files', value: 'study' },
-            { name: 'Web research', value: 'research' },
-          ],
-        },
-      ],
-    },
-    {
-      type: 1,
-      name: 'list',
-      description: 'Show your saved private agents',
-    },
-    {
-      type: 1,
-      name: 'run',
-      description: 'Give one of your private agents a task',
-      options: [
-        { type: 3, name: 'name', description: 'Name of the agent to run', required: true, max_length: 32 },
-        { type: 3, name: 'task', description: 'What should the agent help you with?', required: true, max_length: 1500 },
-        { type: 11, name: 'file', description: 'Optional study file (for study agents)', required: false },
-      ],
-    },
+    { type: 3, name: 'task', description: 'What should the selected agent help you with? (run only)', required: false, max_length: 1500 },
+    { type: 11, name: 'file', description: 'Optional study file (for study agents)', required: false },
+    { type: 3, name: 'new_name', description: 'New agent name (edit only)', required: false, max_length: 32 },
   ],
 };
 
@@ -286,7 +244,7 @@ const ALL_COMMANDS = [
   CHALLENGE_COMMAND,
   STUDY_COMMAND,
   OCI_COMMAND,
-  AGENTS_COMMAND,
+  AGENT_COMMAND,
 ];
 
 try {

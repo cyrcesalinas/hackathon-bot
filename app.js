@@ -242,9 +242,8 @@ function handleAgentCommand(res, req) {
     });
   }
 
-  const subcommand = req.body.data.options?.find((option) => option.type === 1);
-  const action = subcommand?.name;
-  const options = subcommand?.options ?? [];
+  const options = req.body.data.options ?? [];
+  const action = getOptionValue(options, 'action');
 
   if (action === 'create') {
     let profile;
@@ -279,7 +278,7 @@ function handleAgentCommand(res, req) {
       data: {
         flags: InteractionResponseFlags.EPHEMERAL,
         allowed_mentions: { parse: [] },
-        content: `Preview your private agent\n\n${formatAgentSummary(profile)}\n\nIt will use the bot's configured OpenRouter model. Save it to make it available through /agent run.`,
+        content: `Preview your private agent\n\n${formatAgentSummary(profile)}\n\nIt will use the bot's configured OpenRouter model. Save it, then choose Run an agent from /agent.`,
         components: [
           {
             type: MessageComponentTypes.ACTION_ROW,
@@ -309,7 +308,7 @@ function handleAgentCommand(res, req) {
       req,
       async () => {
         const agents = await listAgents(userId);
-        if (!agents.length) return 'You have no saved agents yet. Start with /agent create.';
+        if (!agents.length) return 'You have no saved agents yet. Start with /agent and choose Create agent.';
         return `Your private agents (${agents.length}):\n\n${agents.map(formatAgentSummary).join('\n\n')}`;
       },
       '/agent list',
@@ -408,7 +407,7 @@ function handleAgentCommand(res, req) {
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
       flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose a subcommand: /agent create, /agent delete, /agent edit, /agent list, or /agent run.',
+      content: 'Choose an action under /agent: Create agent, Delete agent, Edit agent, List saved agents, or Run an agent.',
     },
   });
 }
@@ -469,7 +468,7 @@ function handleAgentDraftButton(res, req, componentId) {
       try {
         const agent = await saveNewAgent(draft.profile);
         pendingAgentDrafts.delete(draftId);
-        return `Saved **${agent.name}** as a private agent. Use /agent run to try it.`;
+        return `Saved **${agent.name}** as a private agent. Choose Run an agent from /agent to try it.`;
       } catch (error) {
         if (error?.userMessage) pendingAgentDrafts.delete(draftId);
         else draft.saving = false;
@@ -698,18 +697,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     }
 
     if (name === 'db') {
-      const subcommand = data.options?.find((option) => option.type === 1)?.name;
-      if (!['status', 'scan', 'lookup'].includes(subcommand)) {
+      const options = data.options ?? [];
+      const action = getOptionValue(options, 'action');
+      if (!['status', 'scan', 'lookup'].includes(action)) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Choose the lookup, scan, or status database command.',
+            content: 'Choose an action for /db.',
           },
         });
       }
 
-      const hasPermission = subcommand === 'scan'
+      const hasPermission = action === 'scan'
         ? hasAdbAdminPermission(req)
         : hasAdbPermission(req);
       if (!hasPermission) {
@@ -717,7 +717,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: subcommand === 'scan'
+            content: action === 'scan'
               ? 'The database catalog scan is restricted to server administrators.'
               : 'This database command is restricted to an approved server or role.',
           },
@@ -734,7 +734,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
 
-      if (subcommand === 'status') {
+      if (action === 'status') {
         if (!isAdbConfigured()) {
           return res.send({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -747,7 +747,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         return deferAdbStatus(res, req);
       }
 
-      if (subcommand === 'scan') {
+      if (action === 'scan') {
         if (!isAdbConfigured()) {
           return res.send({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -760,8 +760,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         return deferAdbScan(res, req);
       }
 
-      const lookup = data.options?.find((option) => option.name === 'lookup');
-      const question = lookup?.options?.find((option) => option.name === 'question')?.value;
+      const question = getOptionValue(options, 'question');
       if (typeof question !== 'string' || !question.trim()) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
