@@ -46,16 +46,18 @@ function validateAttachment(attachment) {
 }
 
 export function getStudyCommandRequest(commandOptions = [], resolvedAttachments = {}) {
-  const subcommand = commandOptions.find((option) => option.type === 1) ?? commandOptions[0];
-  const options = subcommand?.options ?? [];
-  const name = subcommand?.name;
+  // Accept the old subcommand payload briefly while Discord propagates the new command schema.
+  const legacySubcommand = commandOptions.find((option) => option.type === 1);
+  const options = legacySubcommand?.options ?? commandOptions;
+  const name = legacySubcommand?.name ?? getOptionValue(options, 'mode');
 
   if (!['ask', 'exam', 'guide', 'upload'].includes(name)) {
     return { error: 'No reconozco ese comando de estudio.' };
   }
 
-  const questionValue = getOptionValue(options, 'question');
-  const topicValue = getOptionValue(options, 'topic');
+  const inputValue = getOptionValue(options, 'input');
+  const questionValue = getOptionValue(options, 'question') ?? (name === 'ask' ? inputValue : undefined);
+  const topicValue = getOptionValue(options, 'topic') ?? (name === 'exam' || name === 'guide' ? inputValue : undefined);
   const question = typeof questionValue === 'string' ? questionValue.trim() : '';
   const topic = typeof topicValue === 'string' ? topicValue.trim() : '';
   const attachmentId = getOptionValue(options, 'file');

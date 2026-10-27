@@ -12,6 +12,7 @@ import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
 import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
 import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
+import { getOciSystemPrompt, getOciTopic } from './agents/oci.js';
 import { getOpenRouterAnswer, isOpenRouterConfigured } from './openrouter.js';
 import {
   buildStudyOpenRouterRequest,
@@ -183,6 +184,45 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         }),
         '/research',
         'No pude completar la investigación ahora. Inténtalo de nuevo en un momento.',
+      );
+    }
+
+    if (name === 'oci') {
+      const topicValue = data.options?.find((option) => option.name === 'topic')?.value;
+      const question = data.options?.find((option) => option.name === 'question')?.value;
+      const topic = getOciTopic(topicValue);
+
+      if (!topic || typeof question !== 'string' || !question.trim()) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: 'Elige un tema de OCI y escribe una pregunta.',
+          },
+        });
+      }
+
+      if (!isOpenRouterConfigured()) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
+          },
+        });
+      }
+
+      return deferOpenRouterCommand(
+        res,
+        req,
+        async () => ({
+          systemPrompt: getOciSystemPrompt(topic),
+          userContent: question.trim(),
+          maxTokens: 1400,
+          tools: [{ type: 'openrouter:web_search' }],
+        }),
+        `/oci ${topic.value}`,
+        'No pude responder la consulta de OCI ahora. Inténtalo de nuevo en un momento.',
       );
     }
 
