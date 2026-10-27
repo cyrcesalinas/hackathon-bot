@@ -119,24 +119,6 @@ const RESEARCH_COMMAND = {
 };
 
 // Command containing options
-const CHALLENGE_COMMAND = {
-  name: 'challenge',
-  description: 'Challenge to a match of rock paper scissors',
-  options: [
-    {
-      type: 3,
-      name: 'object',
-      description: 'Pick your object',
-      required: true,
-      choices: createCommandChoices(),
-    },
-  ],
-  type: 1,
-  integration_types: [0, 1],
-  contexts: [0, 2],
-};
-
-// Command containing options
 
 const STUDY_COMMAND = {
   name: 'study',
@@ -241,7 +223,6 @@ const ALL_COMMANDS = [
   DEV_COMMAND,
   DB_COMMAND,
   RESEARCH_COMMAND,
-  CHALLENGE_COMMAND,
   STUDY_COMMAND,
   OCI_COMMAND,
   AGENT_COMMAND,

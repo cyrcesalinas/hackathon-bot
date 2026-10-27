@@ -838,23 +838,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       );
     }
 
-    // "test" command
-    if (name === 'test') {
-      // Send a message into the channel where command was triggered from
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          flags: InteractionResponseFlags.IS_COMPONENTS_V2,
-          components: [
-            {
-              type: MessageComponentTypes.TEXT_DISPLAY,
-              // Fetches a random emoji to send from a helper function
-              content: `hello world ${getRandomEmoji()}`
-            }
-          ]
-        },
-      });
-    }
 
     if (name === 'study') {
       const studyRequest = getStudyCommandRequest(data.options, data.resolved?.attachments);
@@ -888,44 +871,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     }
 
     // "challenge" command
-    if (name === 'challenge' && id) {
-      // User ID is in the member field for servers and the user field for DMs.
-      const userId = req.body.member?.user?.id ?? req.body.user?.id;
-      const objectName = data.options?.[0]?.value;
-
-      if (!userId || !objectName) {
-        return res.status(400).json({ error: 'invalid challenge command' });
-      }
-
-      activeGames[id] = {
-        id: userId,
-        objectName,
-      };
-
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          flags: InteractionResponseFlags.IS_COMPONENTS_V2,
-          components: [
-            {
-              type: MessageComponentTypes.TEXT_DISPLAY,
-              content: `Rock paper scissors challenge from <@${userId}>`,
-            },
-            {
-              type: MessageComponentTypes.ACTION_ROW,
-              components: [
-                {
-                  type: MessageComponentTypes.BUTTON,
-                  custom_id: `accept_button_${id}`,
-                  label: 'Accept',
-                  style: ButtonStyleTypes.PRIMARY,
-                },
-              ],
-            },
-          ],
-        },
-      });
-    }
 
     console.error(`unknown command: ${name}`);
     return res.status(400).json({ error: 'unknown command' });
