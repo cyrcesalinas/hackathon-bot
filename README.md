@@ -1,6 +1,6 @@
 # Getting Started app for Discord
 
-This project contains a basic rock-paper-scissors-style Discord app written in JavaScript, built for the [getting started guide](https://discord.com/developers/docs/getting-started).
+This project contains a Discord learning assistant written in JavaScript, built on the [Discord getting started guide](https://discord.com/developers/docs/getting-started).
 
 ![Demo of app](https://github.com/discord/discord-example-app/raw/main/assets/getting-started-demo.gif?raw=true)
 
@@ -17,7 +17,6 @@ Below is a basic overview of the project structure:
 ├── .env.sample -> sample .env file
 ├── app.js      -> main entrypoint for app
 ├── commands.js -> slash command payloads + helpers
-├── game.js     -> logic specific to RPS
 ├── utils.js    -> utility functions and enums
 ├── package.json
 ├── README.md
@@ -125,7 +124,7 @@ The commands for the example app are set up in `commands.js`. All of the command
 npm run register
 ```
 
-In server channels, general learning and game commands post their response publicly. Agent-builder and database interactions remain ephemeral so private configurations, agent results, and database results are not exposed to the channel. Commands used in DMs retain their existing visibility behavior.
+In server channels, learning command responses post publicly. Agent-builder and database interactions remain ephemeral so private configurations, agent results, and database results are not exposed to the channel. Commands used in DMs retain their existing visibility behavior.
 
 Run registration after adding or changing commands, then restart `discord-example.service`. The `/db` action selector offers a connection check, an administrator catalog scan, and a query action. `/agent` becomes usable after the profile table and separate runtime credentials are configured.
 

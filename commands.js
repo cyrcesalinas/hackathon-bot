@@ -1,27 +1,11 @@
 import 'dotenv/config';
-import { getRPSChoices } from './game.js';
-import { capitalize, InstallGlobalCommands, RemoveGlobalCommands } from './utils.js';
+import { InstallGlobalCommands, RemoveGlobalCommands } from './utils.js';
 import { OCI_TOPICS } from './agents/oci.js';
 import {
   AGENT_LANGUAGES,
   AGENT_PRESET_DEFINITIONS,
   AGENT_RESPONSE_FORMATS,
 } from './agents/agent-config.js';
-
-// Get the game choices from game.js
-function createCommandChoices() {
-  const choices = getRPSChoices();
-  const commandChoices = [];
-
-  for (let choice of choices) {
-    commandChoices.push({
-      name: capitalize(choice),
-      value: choice.toLowerCase(),
-    });
-  }
-
-  return commandChoices;
-}
 
 // Simple test command
 const TEST_COMMAND = {
@@ -306,7 +290,7 @@ try {
     process.env.APP_ID,
     ALL_COMMANDS,
   );
-  const removedCommands = await RemoveGlobalCommands(process.env.APP_ID, ['agents']);
+  const removedCommands = await RemoveGlobalCommands(process.env.APP_ID, ['agents', 'challenge']);
   const commandNames = installedCommands.map(({ name }) => `/${name}`).join(', ');
   console.log(`Installed ${installedCommands.length} global commands: ${commandNames}`);
   if (removedCommands.length) {
