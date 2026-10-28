@@ -13,7 +13,6 @@ import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
 import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
 import { getOciSystemPrompt, getOciTopic } from './agents/oci.js';
-import { buildDevOpenRouterRequest, DevFileError, getDevCommandRequest } from './agents/dev.js';
 import { getOpenRouterAnswer, getOpenRouterModel, isOpenRouterConfigured } from './openrouter.js';
 import {
   buildStudyOpenRouterRequest,
@@ -350,7 +349,6 @@ async function answerInteraction(
     if (
       error instanceof StudyFileError ||
       error instanceof StudyQuizError ||
-      error instanceof DevFileError ||
       error instanceof AgentCommandError
     ) {
       content = error.userMessage;
@@ -909,34 +907,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
 
     if (name === 'agent') {
       return handleAgentCommand(res, req);
-    }
-
-    if (name === 'dev') {
-      const devRequest = getDevCommandRequest(data.options, data.resolved?.attachments);
-      if (devRequest.error) {
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: { flags: InteractionResponseFlags.EPHEMERAL, content: devRequest.error },
-        });
-      }
-
-      if (!isOpenRouterConfigured()) {
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Configura OPENROUTER_API_KEY y OPENROUTER_MODEL en el entorno del bot.',
-          },
-        });
-      }
-
-      return deferOpenRouterCommand(
-        res,
-        req,
-        () => buildDevOpenRouterRequest(devRequest),
-        '/dev ask',
-        'I could not answer the engineering question just now. Please try again shortly.',
-      );
     }
 
     if (name === 'db') {
