@@ -14,12 +14,19 @@ import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
 import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
 import { getOciSystemPrompt, getOciTopic } from './agents/oci.js';
 import { buildDevOpenRouterRequest, DevFileError, getDevCommandRequest } from './agents/dev.js';
-import { getOpenRouterAnswer, isOpenRouterConfigured } from './openrouter.js';
+import { getOpenRouterAnswer, getOpenRouterModel, isOpenRouterConfigured } from './openrouter.js';
 import {
   buildStudyOpenRouterRequest,
+  getStudyGuideFilename,
   getStudyCommandRequest,
   StudyFileError,
 } from './study.js';
+import {
+  getMissedQuestionIndexesForReview,
+  parseStudyQuiz,
+  renderStudyQuiz,
+  StudyQuizError,
+} from './study-quiz.js';
 import { answerAdbQuestion } from './agents/db-query.js';
 import {
   AgentCommandError,
@@ -64,20 +71,46 @@ const LONG_RESPONSE_TTL_MS = 15 * 60_000;
 const LONG_RESPONSE_LIMIT = 200;
 const LONG_RESPONSE_PAGE_SIZE = 1950;
 const pendingLongResponses = new Map();
+const STUDY_QUIZ_TTL_MS = 30 * 60_000;
+const STUDY_QUIZ_LIMIT = 100;
+const pendingStudyQuizzes = new Map();
 
-async function updateInteractionResponse(applicationId, interactionToken, content, components) {
+async function updateInteractionResponse(applicationId, interactionToken, content, components, attachment) {
   const body = {
     content,
     allowed_mentions: { parse: [] },
   };
   if (components !== undefined) body.components = components;
 
+  let requestBody;
+  let headers;
+  if (attachment) {
+    const formData = new FormData();
+    formData.set('payload_json', JSON.stringify({
+      ...body,
+      attachments: [{
+        id: 0,
+        filename: attachment.filename,
+        description: 'Full study guide in Markdown format',
+      }],
+    }));
+    formData.set(
+      'files[0]',
+      new Blob([attachment.content], { type: 'text/markdown; charset=utf-8' }),
+      attachment.filename,
+    );
+    requestBody = formData;
+  } else {
+    headers = { 'Content-Type': 'application/json' };
+    requestBody = JSON.stringify(body);
+  }
+
   const response = await fetch(
     `${DISCORD_API_URL}/webhooks/${applicationId}/${encodeURIComponent(interactionToken)}/messages/@original`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers,
+      body: requestBody,
     },
   );
 
@@ -121,6 +154,16 @@ function cleanExpiredLongResponses() {
   }
   while (pendingLongResponses.size >= LONG_RESPONSE_LIMIT) {
     pendingLongResponses.delete(pendingLongResponses.keys().next().value);
+  }
+}
+
+function cleanExpiredStudyQuizzes() {
+  const now = Date.now();
+  for (const [quizId, quiz] of pendingStudyQuizzes) {
+    if (quiz.expiresAt <= now) pendingStudyQuizzes.delete(quizId);
+  }
+  while (pendingStudyQuizzes.size >= STUDY_QUIZ_LIMIT) {
+    pendingStudyQuizzes.delete(pendingStudyQuizzes.keys().next().value);
   }
 }
 
@@ -184,29 +227,134 @@ function handleLongResponseButton(res, req, componentId) {
   });
 }
 
-async function answerInteraction(applicationId, interactionToken, requestFactory, operation, failureMessage, ownerUserId) {
+function handleStudyQuizButton(res, req, componentId) {
+  const match = /^study_quiz:([0-9a-f-]{36}):([a-z_]+)(?::(\d+))?(?::(\d+))?$/.exec(componentId);
+  if (!match) return res.status(400).json({ error: 'invalid study quiz button' });
+
+  const [, quizId, action, firstValue, secondValue] = match;
+  const quiz = pendingStudyQuizzes.get(quizId);
+  if (!quiz || quiz.expiresAt <= Date.now()) {
+    pendingStudyQuizzes.delete(quizId);
+    return res.send({
+      type: InteractionResponseType.UPDATE_MESSAGE,
+      data: {
+        content: 'This quiz is no longer available. Run `/study exam` again to start a new one.',
+        components: [],
+        allowed_mentions: { parse: [] },
+      },
+    });
+  }
+
+  if (quiz.ownerUserId !== getDiscordUserId(req)) {
+    return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+  }
+
+  if (action === 'answer') {
+    const questionIndex = Number(firstValue);
+    const answerIndex = Number(secondValue);
+    if (
+      quiz.status !== 'answering' ||
+      !Number.isInteger(questionIndex) ||
+      questionIndex !== quiz.questionIndex ||
+      !Number.isInteger(answerIndex) ||
+      answerIndex < 0 ||
+      answerIndex > 3
+    ) {
+      return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+    }
+    quiz.answers[quiz.questionIndex] = answerIndex;
+    quiz.status = 'feedback';
+  } else if (action === 'next') {
+    if (quiz.status !== 'feedback' || Number(firstValue) !== quiz.questionIndex) {
+      return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+    }
+    if (quiz.questionIndex === quiz.questions.length - 1) {
+      quiz.status = 'complete';
+    } else {
+      quiz.questionIndex += 1;
+      quiz.status = 'answering';
+    }
+  } else if (action === 'review') {
+    if (quiz.status !== 'complete') return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+    quiz.reviewIndexes = getMissedQuestionIndexesForReview(quiz);
+    if (quiz.reviewIndexes.length === 0) return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+    quiz.reviewIndex = 0;
+    quiz.status = 'review';
+  } else if (action === 'previous') {
+    if (quiz.status !== 'review' || Number(firstValue) !== quiz.reviewIndex || quiz.reviewIndex === 0) {
+      return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+    }
+    quiz.reviewIndex -= 1;
+  } else if (action === 'review_next') {
+    if (
+      quiz.status !== 'review' ||
+      Number(firstValue) !== quiz.reviewIndex ||
+      quiz.reviewIndex >= quiz.reviewIndexes.length - 1
+    ) {
+      return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+    }
+    quiz.reviewIndex += 1;
+  } else if (action === 'score') {
+    if (quiz.status !== 'review') return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+    quiz.status = 'complete';
+  } else {
+    return res.status(400).json({ error: 'unknown study quiz action' });
+  }
+
+  quiz.expiresAt = Date.now() + STUDY_QUIZ_TTL_MS;
+  const response = renderStudyQuiz(quiz);
+  return res.send({
+    type: InteractionResponseType.UPDATE_MESSAGE,
+    data: { ...response, allowed_mentions: { parse: [] } },
+  });
+}
+
+async function answerInteraction(
+  applicationId,
+  interactionToken,
+  requestFactory,
+  operation,
+  failureMessage,
+  ownerUserId,
+  responseFormatter,
+) {
   let content;
   let components;
+  let attachment;
   let storedResponseId;
+  let storedStudyQuizId;
   try {
     const request = await requestFactory();
     const answer = await getOpenRouterAnswer(request);
-    const pages = splitLongResponse(answer);
-    if (pages.length > 1) {
-      cleanExpiredLongResponses();
-      storedResponseId = randomUUID();
-      pendingLongResponses.set(storedResponseId, {
-        ownerUserId,
-        pages,
-        expiresAt: Date.now() + LONG_RESPONSE_TTL_MS,
-      });
-      content = formatLongResponsePage({ pages }, 0);
-      components = buildLongResponseComponents(storedResponseId, 0, pages.length);
+    if (responseFormatter) {
+      const formattedResponse = responseFormatter(answer, request, ownerUserId);
+      content = formattedResponse.content;
+      components = formattedResponse.components;
+      attachment = formattedResponse.attachment;
+      storedStudyQuizId = formattedResponse.studyQuizId;
     } else {
-      content = pages[0];
+      const pages = splitLongResponse(answer);
+      if (pages.length > 1) {
+        cleanExpiredLongResponses();
+        storedResponseId = randomUUID();
+        pendingLongResponses.set(storedResponseId, {
+          ownerUserId,
+          pages,
+          expiresAt: Date.now() + LONG_RESPONSE_TTL_MS,
+        });
+        content = formatLongResponsePage({ pages }, 0);
+        components = buildLongResponseComponents(storedResponseId, 0, pages.length);
+      } else {
+        content = pages[0];
+      }
     }
   } catch (error) {
-    if (error instanceof StudyFileError || error instanceof DevFileError || error instanceof AgentCommandError) {
+    if (
+      error instanceof StudyFileError ||
+      error instanceof StudyQuizError ||
+      error instanceof DevFileError ||
+      error instanceof AgentCommandError
+    ) {
       content = error.userMessage;
     } else {
       console.error(`${operation} failed:`, error.message);
@@ -215,14 +363,15 @@ async function answerInteraction(applicationId, interactionToken, requestFactory
   }
 
   try {
-    await updateInteractionResponse(applicationId, interactionToken, content, components);
+    await updateInteractionResponse(applicationId, interactionToken, content, components, attachment);
   } catch (error) {
     if (storedResponseId) pendingLongResponses.delete(storedResponseId);
+    if (storedStudyQuizId) pendingStudyQuizzes.delete(storedStudyQuizId);
     console.error('Could not update the Discord interaction:', error.message);
   }
 }
 
-function deferOpenRouterCommand(res, req, requestFactory, operation, failureMessage) {
+function deferOpenRouterCommand(res, req, requestFactory, operation, failureMessage, responseFormatter) {
   res.send({
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
     data: { flags: InteractionResponseFlags.EPHEMERAL },
@@ -236,6 +385,7 @@ function deferOpenRouterCommand(res, req, requestFactory, operation, failureMess
       operation,
       failureMessage,
       getDiscordUserId(req),
+      responseFormatter,
     );
   });
 }
@@ -999,22 +1149,54 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         });
       }
 
-      if (!isOpenRouterConfigured()) {
+      const studyModel = getOpenRouterModel('study');
+      if (!isOpenRouterConfigured(studyModel)) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
+            content: 'Set OPENROUTER_API_KEY and either OPENROUTER_STUDY_MODEL or OPENROUTER_MODEL in the bot environment.',
           },
         });
       }
 
+      const responseFormatter = studyRequest.name === 'guide'
+        ? (answer) => {
+          const filename = getStudyGuideFilename(studyRequest);
+          return {
+            content: `Your complete study guide is attached as \`${filename}\`.`,
+            attachment: { filename, content: answer },
+          };
+        }
+        : studyRequest.name === 'exam'
+          ? (answer, _request, ownerUserId) => {
+            const parsedQuiz = parseStudyQuiz(answer, studyRequest.questionCount);
+            cleanExpiredStudyQuizzes();
+            const quizId = randomUUID();
+            const quiz = {
+              id: quizId,
+              ownerUserId,
+              ...parsedQuiz,
+              answers: new Array(parsedQuiz.questions.length).fill(null),
+              questionIndex: 0,
+              status: 'answering',
+              expiresAt: Date.now() + STUDY_QUIZ_TTL_MS,
+            };
+            pendingStudyQuizzes.set(quizId, quiz);
+            return { ...renderStudyQuiz(quiz), studyQuizId: quizId };
+          }
+        : undefined;
+
       return deferOpenRouterCommand(
         res,
         req,
-        () => buildStudyOpenRouterRequest(studyRequest),
+        async () => ({
+          ...(await buildStudyOpenRouterRequest(studyRequest)),
+          model: studyModel,
+        }),
         `/study ${studyRequest.name}`,
         "I couldn't complete the study request right now. Please try again shortly.",
+        responseFormatter,
       );
     }
 
@@ -1030,6 +1212,10 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
    */
   if (type === InteractionType.MESSAGE_COMPONENT) {
     const componentId = data.custom_id;
+
+    if (componentId.startsWith('study_quiz:')) {
+      return handleStudyQuizButton(res, req, componentId);
+    }
 
     if (componentId.startsWith('answer_page:')) {
       return handleLongResponseButton(res, req, componentId);

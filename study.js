@@ -46,16 +46,22 @@ function validateAttachment(attachment) {
 }
 
 export function getStudyCommandRequest(commandOptions = [], resolvedAttachments = {}) {
-  // Accept the old subcommand payload briefly while Discord propagates the new command schema.
+  // Support the new subcommands and the previous mode-based payload during Discord schema propagation.
   const legacySubcommand = commandOptions.find((option) => option.type === 1);
   const options = legacySubcommand?.options ?? commandOptions;
-  const name = legacySubcommand?.name ?? getOptionValue(options, 'mode');
+  const selectedActivity = legacySubcommand?.name ?? getOptionValue(options, 'mode');
+  const name = selectedActivity === 'question' ? 'ask' : selectedActivity;
 
   if (!['ask', 'exam', 'guide', 'upload'].includes(name)) {
     return { error: "I don't recognize that study activity." };
   }
 
   const inputValue = getOptionValue(options, 'input');
+  const rawQuestionCount = getOptionValue(options, 'questions');
+  const questionCount = rawQuestionCount === undefined ? 5 : rawQuestionCount;
+  if (name === 'exam' && (!Number.isInteger(questionCount) || questionCount < 3 || questionCount > 10)) {
+    return { error: 'Choose between 3 and 10 exam questions.' };
+  }
   const questionValue = getOptionValue(options, 'question') ?? (name === 'ask' ? inputValue : undefined);
   const topicValue = getOptionValue(options, 'topic') ?? (name === 'exam' || name === 'guide' ? inputValue : undefined);
   const question = typeof questionValue === 'string' ? questionValue.trim() : '';
@@ -78,7 +84,13 @@ export function getStudyCommandRequest(commandOptions = [], resolvedAttachments 
     return { error: 'Enter a topic or attach a study file.' };
   }
 
-  return { name, question, topic, attachment };
+  return {
+    name,
+    question,
+    topic,
+    attachment,
+    ...(name === 'exam' ? { questionCount } : {}),
+  };
 }
 
 async function readAttachmentWithinLimit(attachment) {
@@ -146,9 +158,46 @@ async function readAttachmentWithinLimit(attachment) {
 
 function getTaskPrompt(request) {
   if (request.name === 'ask') return `Student question: ${request.question}`;
-  if (request.name === 'exam') return `Exam topic: ${request.topic || 'use the attached file'}`;
+  if (request.name === 'exam') {
+    const questionCount = Number.isInteger(request.questionCount) ? request.questionCount : 5;
+    return `Create exactly ${questionCount} multiple-choice questions. Exam topic: ${request.topic || 'use the attached file'}`;
+  }
   if (request.name === 'guide') return `Study guide topic: ${request.topic || 'use the attached file'}`;
   return 'Analyze the attached file and prepare study notes.';
+}
+
+function getUploadMaxTokens() {
+  const configured = Number(process.env.OPENROUTER_STUDY_MAX_TOKENS);
+  if (!Number.isSafeInteger(configured) || configured < 1) return 1800;
+  return Math.min(configured, 4000);
+}
+
+function getStudyResponseOptions(request) {
+  const { name } = request;
+  const questionCount = Number.isInteger(request.questionCount) ? request.questionCount : 5;
+  return {
+    maxTokens: name === 'guide'
+      ? 4000
+      : name === 'exam'
+        ? Math.min(4000, 500 + questionCount * 350)
+        : name === 'upload'
+          ? getUploadMaxTokens()
+          : 900,
+    ...(name === 'guide' ? { tools: [{ type: 'openrouter:web_search' }] } : {}),
+  };
+}
+
+export function getStudyGuideFilename(request) {
+  const sourceName = request.topic || request.attachment?.filename?.replace(/\.[^.]+$/, '') || 'notes';
+  const slug = sourceName
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+    .replace(/-+$/g, '');
+  return `study-guide-${slug || 'notes'}.md`;
 }
 
 export async function buildStudyOpenRouterRequest(request) {
@@ -159,7 +208,7 @@ export async function buildStudyOpenRouterRequest(request) {
     return {
       systemPrompt,
       userContent: taskPrompt,
-      maxTokens: request.name === 'exam' || request.name === 'guide' ? 1400 : 900,
+      ...getStudyResponseOptions(request),
     };
   }
 
@@ -183,8 +232,8 @@ export async function buildStudyOpenRouterRequest(request) {
           },
         },
       ],
-      maxTokens: request.name === 'exam' || request.name === 'guide' ? 1400 : 900,
       plugins: [{ id: 'file-parser', pdf: { engine: 'cloudflare-ai' } }],
+      ...getStudyResponseOptions(request),
     };
   }
 
@@ -206,6 +255,6 @@ export async function buildStudyOpenRouterRequest(request) {
   return {
     systemPrompt,
     userContent: `${taskPrompt}\nAttached file: ${filename}\n\nFile contents:\n${text}${truncated ? '\n\n[The file was shortened to fit the processing limit.]' : ''}`,
-    maxTokens: request.name === 'exam' || request.name === 'guide' ? 1400 : 900,
+    ...getStudyResponseOptions(request),
   };
 }

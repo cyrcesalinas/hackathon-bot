@@ -133,28 +133,76 @@ const STUDY_COMMAND = {
   contexts: [0, 1, 2],
   options: [
     {
-      type: 3,
-      name: 'mode',
-      description: 'Choose a study activity',
-      required: true,
-      choices: [
-        { name: 'Study question', value: 'ask' },
-        { name: 'Upload study material', value: 'upload' },
-        { name: 'Practice exam', value: 'exam' },
-        { name: 'Study guide', value: 'guide' },
+      type: 1,
+      name: 'question',
+      description: 'Ask a study question',
+      options: [
+        {
+          type: 3,
+          name: 'input',
+          description: 'Your study question',
+          required: true,
+        },
       ],
     },
     {
-      type: 3,
-      name: 'input',
-      description: 'Question or topic, depending on the activity',
-      required: false,
+      type: 1,
+      name: 'upload',
+      description: 'Analyze a study file and create notes',
+      options: [
+        {
+          type: 11,
+          name: 'file',
+          description: 'Study material (PDF, TXT, Markdown, CSV, or JSON; up to 8 MB)',
+          required: true,
+        },
+      ],
     },
     {
-      type: 11,
-      name: 'file',
-      description: 'Optional study file; required for upload',
-      required: false,
+      type: 1,
+      name: 'exam',
+      description: 'Create a practice exam from a topic or file',
+      options: [
+        {
+          type: 3,
+          name: 'input',
+          description: 'Exam topic (optional when a file is attached)',
+          required: false,
+        },
+        {
+          type: 4,
+          name: 'questions',
+          description: 'Number of questions (3 to 10; default 5)',
+          required: false,
+          min_value: 3,
+          max_value: 10,
+        },
+        {
+          type: 11,
+          name: 'file',
+          description: 'Optional study material (up to 8 MB)',
+          required: false,
+        },
+      ],
+    },
+    {
+      type: 1,
+      name: 'guide',
+      description: 'Create a study guide from a topic or file',
+      options: [
+        {
+          type: 3,
+          name: 'input',
+          description: 'Study topic (optional when a file is attached)',
+          required: false,
+        },
+        {
+          type: 11,
+          name: 'file',
+          description: 'Optional study material (up to 8 MB)',
+          required: false,
+        },
+      ],
     },
   ],
 };

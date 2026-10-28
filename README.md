@@ -60,9 +60,13 @@ Add your OpenRouter API key and the model slug you want to use to `.env` (or you
 ```env
 OPENROUTER_API_KEY=your_openrouter_api_key
 OPENROUTER_MODEL=provider/model
+# Optional; override the model used by /study.
+OPENROUTER_STUDY_MODEL=provider/instruct-model
+# Optional; /study upload defaults to 1800 and is capped at 4000.
+OPENROUTER_STUDY_MAX_TOKENS=1800
 ```
 
-The bot uses the configured OpenRouter model for `/ask`, `/research`, and the `/study` subcommands. `/research` enables OpenRouter's `openrouter:web_search` tool and asks for direct source links. Each invocation is a separate request; the bot does not retain conversation history.
+The bot uses `OPENROUTER_MODEL` for `/ask` and `/research`. `/study` uses `OPENROUTER_STUDY_MODEL` when set and otherwise falls back to `OPENROUTER_MODEL`; choosing an instruction-following model can avoid reasoning-heavy models spending the output budget before producing study notes. `/study upload` defaults to an output limit of 1800 tokens, configurable up to 4000 with `OPENROUTER_STUDY_MAX_TOKENS`. `/research` enables OpenRouter's `openrouter:web_search` tool and asks for direct source links. Each invocation is a separate request; the bot does not retain conversation history.
 
 `/agent` offers Create, Delete, Edit, List, Run, and Test as selectable actions. Create builds a private agent from a general-assistant, tutor, researcher, study-coach, or custom preset. A student can override the preset's style, independently enable web research and study-file analysis, choose an output format, and select English, Spanish, or automatic language matching. The bot shows the complete configuration and saves it only after confirmation. Test privately exercises a saved agent, and edits increment the displayed configuration version.
 
@@ -111,7 +115,7 @@ The `Discover schema tables and views for the approved catalog` action under `/d
 
 The runtime catalog permits lists, counts, filtering, sorting, grouping, sums, and averages where compatible with the Oracle column type. Responses remain limited to 25 rows, queries use bind variables, and only `SELECT` statements pass the database execution guard. Automatic approval deliberately does not distinguish sensitive application data from other supported columns.
 
-`/study guide` accepts a topic, a file, or both. `/study upload` analyzes an attached file and returns study notes immediately. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB. The bot downloads a file only to process that command and does not keep it for later commands; attach it again when requesting a guide. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.
+`/study question` takes a text question only. `/study guide` and `/study exam` accept a topic, a file, or both, while `/study upload` analyzes an attached file and returns study notes immediately. An exam has 3–10 multiple-choice questions (5 by default), presents one question at a time with answer buttons, explains each answer, shows a final score, and lets the user review missed questions. Quiz state is private and held in memory for 30 minutes; it is lost if the bot restarts, and scores are not saved. A guide uses OpenRouter web search for source links and returns the full AI answer as a downloadable Markdown file. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB. The bot downloads a file only to process that command and does not keep it for later commands; attach it again when requesting a guide or exam. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.
 
 ### Install slash commands
 

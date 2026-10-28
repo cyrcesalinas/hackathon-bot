@@ -2,10 +2,18 @@ import 'dotenv/config';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-export function isOpenRouterConfigured() {
+export function getOpenRouterModel(purpose = 'default') {
+  if (purpose === 'study') {
+    return process.env.OPENROUTER_STUDY_MODEL?.trim() || process.env.OPENROUTER_MODEL?.trim() || '';
+  }
+  return process.env.OPENROUTER_MODEL?.trim() || '';
+}
+
+export function isOpenRouterConfigured(model = getOpenRouterModel()) {
   return Boolean(
     process.env.OPENROUTER_API_KEY?.trim() &&
-    process.env.OPENROUTER_MODEL?.trim(),
+    typeof model === 'string' &&
+    model.trim(),
   );
 }
 
@@ -20,20 +28,39 @@ function getAnswerText(content) {
     .trim();
 }
 
+function getContentDiagnostics(content) {
+  if (typeof content === 'string') {
+    return { contentType: 'string', textLength: content.length };
+  }
+  if (Array.isArray(content)) {
+    return {
+      contentType: 'array',
+      contentBlockTypes: content.slice(0, 8).map((part) =>
+        typeof part?.type === 'string' ? part.type : 'unknown',
+      ),
+    };
+  }
+  return { contentType: content === null ? 'null' : typeof content };
+}
+
 export async function getOpenRouterAnswer({
   systemPrompt,
   userContent,
   maxTokens = 900,
+  model,
   tools,
   plugins,
   provider,
 }) {
-  if (!isOpenRouterConfigured()) {
+  const selectedModel = typeof model === 'string' && model.trim()
+    ? model.trim()
+    : getOpenRouterModel();
+  if (!isOpenRouterConfigured(selectedModel)) {
     throw new Error('OpenRouter configuration is missing');
   }
 
   const requestBody = {
-    model: process.env.OPENROUTER_MODEL.trim(),
+    model: selectedModel,
     messages: [
       {
         role: 'system',
@@ -73,8 +100,32 @@ export async function getOpenRouterAnswer({
   }
 
   const result = await response.json();
-  const answer = getAnswerText(result.choices?.[0]?.message?.content);
-  if (!answer) throw new Error('OpenRouter returned an empty answer');
+  const choice = result.choices?.[0];
+  const message = choice?.message;
+  const answer = getAnswerText(message?.content);
+  if (!answer) {
+    const usage = result.usage ?? {};
+    const diagnostics = {
+      generationId: result.id ?? null,
+      requestedModel: selectedModel,
+      responseModel: result.model ?? null,
+      provider: result.provider ?? null,
+      finishReason: choice?.finish_reason ?? null,
+      maxTokens: requestBody.max_tokens,
+      promptTokens: usage.prompt_tokens ?? null,
+      completionTokens: usage.completion_tokens ?? null,
+      reasoningTokens:
+        usage.completion_tokens_details?.reasoning_tokens ??
+        usage.reasoning_tokens ??
+        null,
+      ...getContentDiagnostics(message?.content),
+      messageFields: message && typeof message === 'object'
+        ? Object.keys(message).slice(0, 12)
+        : [],
+    };
+    console.error('OpenRouter returned no text:', JSON.stringify(diagnostics));
+    throw new Error('OpenRouter returned an empty answer');
+  }
 
   return answer;
 }
