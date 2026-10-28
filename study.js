@@ -71,6 +71,19 @@ export function getStudyCommandRequest(commandOptions = [], resolvedAttachments 
   const attachmentId = getOptionValue(options, 'file');
   let attachment;
 
+  if (name === 'ask' && attachmentId !== undefined) {
+    return { error: 'Question accepts input only. Remove file and write your question in input.' };
+  }
+  if (name === 'upload' && options.some((option) => (
+    ['input', 'question', 'topic'].includes(option.name) &&
+    typeof option.value === 'string' && option.value.trim()
+  ))) {
+    return { error: 'Upload accepts file only. Remove input and attach your study file.' };
+  }
+  if (name !== 'exam' && rawQuestionCount !== undefined) {
+    return { error: 'The questions option is for Exam only. Remove it for this activity.' };
+  }
+
   if (typeof attachmentId === 'string') {
     attachment = resolvedAttachments?.[attachmentId];
     const validation = validateAttachment(attachment);
@@ -80,10 +93,10 @@ export function getStudyCommandRequest(commandOptions = [], resolvedAttachments 
     return { error: "I couldn't identify the attachment. Please attach it again." };
   }
 
-  if (name === 'ask' && !question) return { error: 'Enter a study question.' };
-  if (name === 'upload' && !attachment) return { error: 'Attach a study file.' };
+  if (name === 'ask' && !question) return { error: 'Write your study question in input.' };
+  if (name === 'upload' && !attachment) return { error: 'Attach your study material using file.' };
   if ((name === 'guide' || name === 'exam') && !topic && !attachment) {
-    return { error: 'Enter a topic or attach a study file.' };
+    return { error: 'Write a topic in input or attach study material using file.' };
   }
 
   return {
