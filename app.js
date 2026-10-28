@@ -55,17 +55,24 @@ const AGENT_RUNS_PER_USER_PER_MINUTE = 5;
 const AGENT_RUNS_GLOBAL_PER_MINUTE = 30;
 const AGENT_DRAFT_TTL_MS = 10 * 60_000;
 const AGENT_DRAFT_LIMIT = 200;
+const LONG_RESPONSE_TTL_MS = 15 * 60_000;
+const LONG_RESPONSE_LIMIT = 200;
+const LONG_RESPONSE_PAGE_SIZE = 1950;
+const pendingLongResponses = new Map();
 
-async function updateInteractionResponse(applicationId, interactionToken, content) {
+async function updateInteractionResponse(applicationId, interactionToken, content, components) {
+  const body = {
+    content,
+    allowed_mentions: { parse: [] },
+  };
+  if (components !== undefined) body.components = components;
+
   const response = await fetch(
     `${DISCORD_API_URL}/webhooks/${applicationId}/${encodeURIComponent(interactionToken)}/messages/@original`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content,
-        allowed_mentions: { parse: [] },
-      }),
+      body: JSON.stringify(body),
     },
   );
 
@@ -81,12 +88,118 @@ function limitDiscordMessage(content) {
     : content;
 }
 
-async function answerInteraction(applicationId, interactionToken, requestFactory, operation, failureMessage) {
+function splitLongResponse(content) {
+  const remaining = Array.from(content);
+  const pages = [];
+
+  while (remaining.length > LONG_RESPONSE_PAGE_SIZE) {
+    let splitAt = LONG_RESPONSE_PAGE_SIZE;
+    const earliestPreferredBreak = LONG_RESPONSE_PAGE_SIZE - 100;
+    for (let index = LONG_RESPONSE_PAGE_SIZE; index >= earliestPreferredBreak; index -= 1) {
+      if (/\s/.test(remaining[index - 1])) {
+        splitAt = index;
+        break;
+      }
+    }
+
+    pages.push(remaining.splice(0, splitAt).join(''));
+  }
+
+  if (remaining.length > 0 || pages.length === 0) pages.push(remaining.join(''));
+  return pages;
+}
+
+function cleanExpiredLongResponses() {
+  const now = Date.now();
+  for (const [responseId, response] of pendingLongResponses) {
+    if (response.expiresAt <= now) pendingLongResponses.delete(responseId);
+  }
+  while (pendingLongResponses.size >= LONG_RESPONSE_LIMIT) {
+    pendingLongResponses.delete(pendingLongResponses.keys().next().value);
+  }
+}
+
+function formatLongResponsePage(response, pageIndex) {
+  const page = response.pages[pageIndex];
+  return response.pages.length > 1
+    ? `${page}\n\n(Part ${pageIndex + 1} of ${response.pages.length})`
+    : page;
+}
+
+function buildLongResponseComponents(responseId, pageIndex, pageCount) {
+  const buttons = [];
+  if (pageIndex > 0) {
+    buttons.push({
+      type: MessageComponentTypes.BUTTON,
+      custom_id: `answer_page:${responseId}:${pageIndex - 1}`,
+      label: 'Previous part',
+      style: ButtonStyleTypes.SECONDARY,
+    });
+  }
+  if (pageIndex < pageCount - 1) {
+    buttons.push({
+      type: MessageComponentTypes.BUTTON,
+      custom_id: `answer_page:${responseId}:${pageIndex + 1}`,
+      label: pageIndex === 0 ? 'Click to see the rest' : 'Next part',
+      style: ButtonStyleTypes.PRIMARY,
+    });
+  }
+  return [{ type: MessageComponentTypes.ACTION_ROW, components: buttons }];
+}
+
+function handleLongResponseButton(res, req, componentId) {
+  const match = /^answer_page:([0-9a-f-]{36}):(\d+)$/.exec(componentId);
+  if (!match) return res.status(400).json({ error: 'invalid long response button' });
+
+  const [, responseId, pageValue] = match;
+  const pageIndex = Number(pageValue);
+  const response = pendingLongResponses.get(responseId);
+  if (!response || response.expiresAt <= Date.now() || pageIndex >= response.pages.length) {
+    pendingLongResponses.delete(responseId);
+    return res.send({
+      type: InteractionResponseType.UPDATE_MESSAGE,
+      data: {
+        content: 'This response is no longer available. Run the command again.',
+        components: [],
+      },
+    });
+  }
+
+  if (response.ownerUserId !== getDiscordUserId(req)) {
+    return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+  }
+
+  return res.send({
+    type: InteractionResponseType.UPDATE_MESSAGE,
+    data: {
+      content: formatLongResponsePage(response, pageIndex),
+      allowed_mentions: { parse: [] },
+      components: buildLongResponseComponents(responseId, pageIndex, response.pages.length),
+    },
+  });
+}
+
+async function answerInteraction(applicationId, interactionToken, requestFactory, operation, failureMessage, ownerUserId) {
   let content;
+  let components;
+  let storedResponseId;
   try {
     const request = await requestFactory();
     const answer = await getOpenRouterAnswer(request);
-    content = limitDiscordMessage(answer);
+    const pages = splitLongResponse(answer);
+    if (pages.length > 1) {
+      cleanExpiredLongResponses();
+      storedResponseId = randomUUID();
+      pendingLongResponses.set(storedResponseId, {
+        ownerUserId,
+        pages,
+        expiresAt: Date.now() + LONG_RESPONSE_TTL_MS,
+      });
+      content = formatLongResponsePage({ pages }, 0);
+      components = buildLongResponseComponents(storedResponseId, 0, pages.length);
+    } else {
+      content = pages[0];
+    }
   } catch (error) {
     if (error instanceof StudyFileError || error instanceof DevFileError || error instanceof AgentCommandError) {
       content = error.userMessage;
@@ -97,8 +210,9 @@ async function answerInteraction(applicationId, interactionToken, requestFactory
   }
 
   try {
-    await updateInteractionResponse(applicationId, interactionToken, content);
+    await updateInteractionResponse(applicationId, interactionToken, content, components);
   } catch (error) {
+    if (storedResponseId) pendingLongResponses.delete(storedResponseId);
     console.error('Could not update the Discord interaction:', error.message);
   }
 }
@@ -116,6 +230,7 @@ function deferOpenRouterCommand(res, req, requestFactory, operation, failureMess
       requestFactory,
       operation,
       failureMessage,
+      getDiscordUserId(req),
     );
   });
 }
@@ -882,6 +997,10 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
    */
   if (type === InteractionType.MESSAGE_COMPONENT) {
     const componentId = data.custom_id;
+
+    if (componentId.startsWith('answer_page:')) {
+      return handleLongResponseButton(res, req, componentId);
+    }
 
     if (componentId.startsWith('agent_save:') || componentId.startsWith('agent_cancel:')) {
       return handleAgentDraftButton(res, req, componentId);
