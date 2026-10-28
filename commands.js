@@ -80,13 +80,13 @@ const STUDY_COMMAND = {
     {
       type: 3,
       name: 'action',
-      description: 'Choose a study activity',
+      description: 'Choose an activity; each option shows whether you need text, a file, or both',
       required: true,
       choices: [
-        { name: 'Guide', value: 'guide' },
-        { name: 'Question', value: 'question' },
-        { name: 'Exam', value: 'exam' },
-        { name: 'Upload', value: 'upload' },
+        { name: 'Guide: Create a study guide (topic text, file, or both)', value: 'guide' },
+        { name: 'Question: Get an explanation (write your question as text)', value: 'question' },
+        { name: 'Exam: Practice with an interactive quiz (topic text, file, or both)', value: 'exam' },
+        { name: 'Upload: Create study notes from a file (file required, max 8 MB)', value: 'upload' },
       ],
     },
   ],

@@ -114,7 +114,16 @@ The `Discover schema tables and views for the approved catalog` action under `/d
 
 The runtime catalog permits lists, counts, filtering, sorting, grouping, sums, and averages where compatible with the Oracle column type. Responses remain limited to 25 rows, queries use bind variables, and only `SELECT` statements pass the database execution guard. Automatic approval deliberately does not distinguish sensitive application data from other supported columns.
 
-Select `/study`, then choose `Guide`, `Question`, `Exam`, or `Upload` from the required `action` dropdown, like `/db`. Send the command to open the private form for that activity. `Question` asks for text input only, and `Upload` asks for a file only. `Guide` and `Exam` accept a topic, a file, or both; an exam has 3–10 multiple-choice questions (5 by default). It presents one question at a time with answer buttons, explains each answer, shows a final score, and lets the user review missed questions. Quiz state is private and held in memory for 30 minutes; it is lost if the bot restarts, and scores are not saved. A guide uses OpenRouter web search for source links and returns the full AI answer as a downloadable Markdown file. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB. The bot downloads a file only to process that request and does not keep it for later requests; attach it again when requesting a guide or exam. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.
+Select `/study`, then choose an activity from the required `action` dropdown, like `/db`. Each choice describes what it creates and what material it needs. Send the command to open the private form for that activity. `Input` means text you type, and `File` means a document you attach; a question is written in `Input`.
+
+| Activity | What to provide | Example |
+| --- | --- | --- |
+| Guide: Create a study guide | A topic in Input, a File, or both; at least one is required | Input: SQL joins for beginners, with examples |
+| Question: Get an explanation | Your question in Input (required text) | Input: How does photosynthesis work? |
+| Exam: Practice with an interactive quiz | A topic in Input, a File, or both; choose 3–10 questions (default: 5) | Input: Cell biology, or File: class-notes.pdf |
+| Upload: Create study notes from a file | One File (required; max 8 MB) | File: class-notes.pdf |
+
+An exam has 3–10 multiple-choice questions (5 by default). It presents one question at a time with answer buttons, explains each answer, shows a final score, and lets the user review missed questions. Quiz state is private and held in memory for 30 minutes; it is lost if the bot restarts, and scores are not saved. A guide uses OpenRouter web search for source links and returns the full AI answer as a downloadable Markdown file. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB. The bot downloads a file only to process that request and does not keep it for later requests; attach it again when requesting a guide or exam. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.
 
 ### Install slash commands
 

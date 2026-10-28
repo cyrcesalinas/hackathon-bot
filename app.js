@@ -402,14 +402,20 @@ function buildStudyMenuResponse() {
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
       flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose a study activity:',
+      content: [
+        'Choose a study activity. Its form will ask for the following:',
+        '**Guide:** Create a study guide from a topic written as text, a file, or both.',
+        '**Question:** Write the question you want explained as text.',
+        '**Exam:** Practice with an interactive quiz based on a topic, a file, or both.',
+        '**Upload:** Attach a file to turn it into study notes (required; max 8 MB).',
+      ].join('\n'),
       components: [{
         type: MessageComponentTypes.ACTION_ROW,
         components: [
-          ['guide', 'Guide'],
-          ['question', 'Question'],
-          ['exam', 'Exam'],
-          ['upload', 'Upload'],
+          ['guide', 'Create a guide'],
+          ['question', 'Ask a question'],
+          ['exam', 'Start an exam'],
+          ['upload', 'Create notes from a file'],
         ].map(([activity, label]) => ({
           type: MessageComponentTypes.BUTTON,
           style: ButtonStyleTypes.SECONDARY,
@@ -421,10 +427,11 @@ function buildStudyMenuResponse() {
   };
 }
 
-function studyTextInput(label, placeholder, { required = false, style = 1, maxLength = 500 } = {}) {
+function studyTextInput(label, placeholder, { required = false, style = 1, maxLength = 500, description } = {}) {
   return {
     type: MessageComponentTypes.LABEL,
     label,
+    ...(description ? { description } : {}),
     component: {
       type: MessageComponentTypes.INPUT_TEXT,
       custom_id: 'input',
@@ -439,8 +446,10 @@ function studyTextInput(label, placeholder, { required = false, style = 1, maxLe
 function studyFileInput(required) {
   return {
     type: MessageComponentTypes.LABEL,
-    label: 'Study file',
-    description: 'PDF, TXT, Markdown, CSV, or JSON; up to 8 MB.',
+    label: required ? 'File: study material (required)' : 'File: study material',
+    description: required
+      ? 'Upload one PDF, TXT, Markdown, CSV, or JSON file; max 8 MB.'
+      : 'Required if Input is blank. PDF, TXT, Markdown, CSV, or JSON; max 8 MB.',
     component: {
       type: 19,
       custom_id: 'file',
@@ -457,24 +466,30 @@ function buildStudyModal(activity) {
 
   let components;
   if (activity === 'question') {
-    components = [studyTextInput('Question', 'What do you want to understand?', {
+    components = [studyTextInput('Input: your question (required)', 'e.g. How does photosynthesis turn light into chemical energy?', {
       required: true,
       style: 2,
       maxLength: 1500,
+      description: 'Write the question you want explained. This activity accepts text only.',
     })];
   } else if (activity === 'upload') {
     components = [studyFileInput(true)];
   } else if (activity === 'guide') {
     components = [
-      studyTextInput('Topic (optional)', 'What should the guide cover?'),
+      studyTextInput('Input: study topic', 'e.g. SQL joins for beginners, with examples', {
+        description: 'Write a topic, attach a file below, or provide both. At least one is required.',
+      }),
       studyFileInput(false),
     ];
   } else {
     components = [
-      studyTextInput('Topic (optional)', 'What should the exam cover?'),
+      studyTextInput('Input: exam topic', 'e.g. Cell biology: organelles and their functions', {
+        description: 'Write a topic, attach a file below, or provide both. At least one is required.',
+      }),
       {
         type: MessageComponentTypes.LABEL,
-        label: 'Number of questions',
+        label: 'Number of quiz questions',
+        description: 'Choose 3–10 questions (default: 5). Answer with buttons, then review mistakes.',
         component: {
           type: MessageComponentTypes.STRING_SELECT,
           custom_id: 'questions',
@@ -497,7 +512,12 @@ function buildStudyModal(activity) {
     type: InteractionResponseType.MODAL,
     data: {
       custom_id: `study_modal:${activity}`,
-      title: `Study: ${activity[0].toUpperCase()}${activity.slice(1)}`,
+      title: {
+        guide: 'Create a study guide',
+        question: 'Ask a study question',
+        exam: 'Start a practice exam',
+        upload: 'Create notes from a file',
+      }[activity],
       components,
     },
   };
