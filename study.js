@@ -46,10 +46,12 @@ function validateAttachment(attachment) {
 }
 
 export function getStudyCommandRequest(commandOptions = [], resolvedAttachments = {}) {
-  // Support the new subcommands and the previous mode-based payload during Discord schema propagation.
+  // Keep accepting existing subcommand and mode payloads while Discord updates the command schema.
   const legacySubcommand = commandOptions.find((option) => option.type === 1);
   const options = legacySubcommand?.options ?? commandOptions;
-  const selectedActivity = legacySubcommand?.name ?? getOptionValue(options, 'mode');
+  const selectedActivity = legacySubcommand?.name
+    ?? getOptionValue(options, 'action')
+    ?? getOptionValue(options, 'mode');
   const name = selectedActivity === 'question' ? 'ask' : selectedActivity;
 
   if (!['ask', 'exam', 'guide', 'upload'].includes(name)) {
@@ -160,7 +162,7 @@ function getTaskPrompt(request) {
   if (request.name === 'ask') return `Student question: ${request.question}`;
   if (request.name === 'exam') {
     const questionCount = Number.isInteger(request.questionCount) ? request.questionCount : 5;
-    return `Create exactly ${questionCount} multiple-choice questions. Exam topic: ${request.topic || 'use the attached file'}`;
+    return `Make a ${questionCount}-question multiple-choice exam. Topic: ${request.topic || 'the attached file'}.`;
   }
   if (request.name === 'guide') return `Study guide topic: ${request.topic || 'use the attached file'}`;
   return 'Analyze the attached file and prepare study notes.';
