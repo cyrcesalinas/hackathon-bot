@@ -76,6 +76,20 @@ const STUDY_COMMAND = {
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
+  options: [
+    {
+      type: 3,
+      name: 'action',
+      description: 'Choose a study activity',
+      required: true,
+      choices: [
+        { name: 'Guide', value: 'guide' },
+        { name: 'Question', value: 'question' },
+        { name: 'Exam', value: 'exam' },
+        { name: 'Upload', value: 'upload' },
+      ],
+    },
+  ],
 };
 
 const OCI_COMMAND = {

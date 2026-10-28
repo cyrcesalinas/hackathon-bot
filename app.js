@@ -1303,6 +1303,19 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
 
 
     if (name === 'study') {
+      const activity = getOptionValue(data.options, 'action');
+      if (activity !== undefined) {
+        const modal = buildStudyModal(activity);
+        if (modal) return res.send(modal);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: 'Choose Guide, Question, Exam, or Upload for /study.',
+          },
+        });
+      }
+
       return res.send(buildStudyMenuResponse());
     }
 
