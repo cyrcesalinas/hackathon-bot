@@ -15,19 +15,32 @@ export class AgentStoreConflictError extends Error {
   }
 }
 
+export function resolveAgentStoreConfig(environment = process.env) {
+  const user = environment.AGENT_STORE_USER?.trim() || environment.ADB_USER?.trim() || '';
+  return {
+    user,
+    password: environment.AGENT_STORE_PASSWORD || environment.ADB_PASSWORD || '',
+    owner: (environment.AGENT_STORE_OWNER?.trim() || user).toUpperCase(),
+    connectString: environment.ADB_CONNECT_STRING?.trim() || '',
+    walletDir: environment.ADB_WALLET_DIR?.trim() || '',
+    walletPassword: environment.ADB_WALLET_PASSWORD || '',
+  };
+}
+
 export function isAgentStoreConfigured() {
+  const config = resolveAgentStoreConfig();
   return Boolean(
-    process.env.AGENT_STORE_USER?.trim() &&
-    process.env.AGENT_STORE_PASSWORD &&
-    process.env.AGENT_STORE_OWNER?.trim() &&
-    process.env.ADB_CONNECT_STRING?.trim() &&
-    process.env.ADB_WALLET_DIR?.trim() &&
-    process.env.ADB_WALLET_PASSWORD,
+    config.user &&
+    config.password &&
+    config.owner &&
+    config.connectString &&
+    config.walletDir &&
+    config.walletPassword,
   );
 }
 
-function getQualifiedAgentTable() {
-  const owner = process.env.AGENT_STORE_OWNER?.trim().toUpperCase();
+function getQualifiedAgentTable(config = resolveAgentStoreConfig()) {
+  const { owner } = config;
   if (!owner || !/^[A-Z][A-Z0-9_$#]{0,127}$/.test(owner)) {
     throw new Error('AGENT_STORE_OWNER_INVALID');
   }
@@ -35,18 +48,18 @@ function getQualifiedAgentTable() {
 }
 
 async function getAgentPool() {
+  const config = resolveAgentStoreConfig();
   if (!isAgentStoreConfigured()) throw new Error('AGENT_STORE_NOT_CONFIGURED');
 
   if (!poolPromise) {
-    const walletDir = process.env.ADB_WALLET_DIR.trim();
     poolPromise = oracledb.createPool({
       poolAlias: AGENT_POOL_ALIAS,
-      user: process.env.AGENT_STORE_USER.trim(),
-      password: process.env.AGENT_STORE_PASSWORD,
-      connectString: process.env.ADB_CONNECT_STRING.trim(),
-      configDir: walletDir,
-      walletLocation: walletDir,
-      walletPassword: process.env.ADB_WALLET_PASSWORD,
+      user: config.user,
+      password: config.password,
+      connectString: config.connectString,
+      configDir: config.walletDir,
+      walletLocation: config.walletDir,
+      walletPassword: config.walletPassword,
       poolMin: 0,
       poolMax: 4,
       poolIncrement: 1,

@@ -89,7 +89,9 @@ ADB_CATALOG_OWNER=<schema-to-scan>
 
 Use a dedicated ADB account with `SELECT` access only to the intended objects for this bot. The database connection uses a small pool with per-query timeouts. The `Check the bot connection to ADB` action under `/db` performs a restricted `SELECT 1 FROM DUAL` connection check and returns only success or failure.
 
-Agent profiles use a separate database connection so the read-only `/db` account does not receive write privileges. Configure a runtime user with access only to the profile table, using the same wallet and connect string:
+Agent profiles use a separate database pool. For the simplest development setup, omit `AGENT_STORE_USER` and `AGENT_STORE_PASSWORD`; the bot will reuse `ADB_USER` and `ADB_PASSWORD`. `AGENT_STORE_OWNER` also defaults to the resolved runtime user. That database user must own `AGENT_PROFILES` or have the required table grants.
+
+For production, a separate runtime user remains recommended so the `/db` account can stay read-only. Configure it with access only to the profile table, using the same wallet and connect string:
 
 ```env
 AGENT_STORE_USER=BOT_AGENT_APP

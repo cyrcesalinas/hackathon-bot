@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AGENT_TOOLS } from '../agents/agent-config.js';
+import { resolveAgentStoreConfig } from '../db/agent-store.js';
 import {
   AgentCommandError,
   buildUserAgentRequest,
@@ -21,6 +22,34 @@ function makeAgent(overrides = {}) {
     ...overrides,
   };
 }
+
+test('agent storage falls back to the generic ADB credentials', () => {
+  const config = resolveAgentStoreConfig({
+    ADB_USER: 'bot_app',
+    ADB_PASSWORD: 'generic-password',
+    ADB_CONNECT_STRING: 'discordadb_low',
+    ADB_WALLET_DIR: '/wallet',
+    ADB_WALLET_PASSWORD: 'wallet-password',
+  });
+
+  assert.equal(config.user, 'bot_app');
+  assert.equal(config.password, 'generic-password');
+  assert.equal(config.owner, 'BOT_APP');
+});
+
+test('dedicated agent-store credentials override generic credentials', () => {
+  const config = resolveAgentStoreConfig({
+    ADB_USER: 'bot_readonly',
+    ADB_PASSWORD: 'generic-password',
+    AGENT_STORE_USER: 'bot_agent_app',
+    AGENT_STORE_PASSWORD: 'agent-password',
+    AGENT_STORE_OWNER: 'bot_agent_owner',
+  });
+
+  assert.equal(config.user, 'bot_agent_app');
+  assert.equal(config.password, 'agent-password');
+  assert.equal(config.owner, 'BOT_AGENT_OWNER');
+});
 
 test('researcher preset enables web research and report output', () => {
   const agent = validateNewAgent({
