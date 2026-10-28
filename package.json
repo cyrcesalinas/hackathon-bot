@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node app.js",
     "register": "node commands.js",
+    "test": "node --test",
     "deploy": "npm run register && sudo systemctl restart discord-example.service",
     "dev": "nodemon app.js",
     "tunnel": "./bin/ngrok http 3000"

@@ -64,7 +64,9 @@ OPENROUTER_MODEL=provider/model
 
 The bot uses the configured OpenRouter model for `/ask`, `/research`, and the `/study` subcommands. `/research` enables OpenRouter's `openrouter:web_search` tool and asks for direct source links. Each invocation is a separate request; the bot does not retain conversation history.
 
-`/agent` offers Create agent, Delete agent, Edit agent, List saved agents, and Run an agent as selectable actions. Create lets a student define a private agent with a name, goal, response style, and one approved capability: chat, study help, or web research. The bot shows a preview and saves the profile only after the student confirms. Agents use the same `OPENROUTER_MODEL` configured for the bot; students cannot supply model IDs or tool definitions. Research agents receive OpenRouter's `openrouter:web_search` server tool, study agents reuse the existing one-run attachment processing, and chat agents receive no tools. Agent runs are stateless, limited to 5 requests per user per minute and 30 per minute across this bot process, and use OpenRouter provider routing with `data_collection: deny`. Agent profiles persist in a dedicated Oracle table; uploaded files and conversations are not saved by the agent feature.
+`/agent` offers Create, Delete, Edit, List, Run, and Test as selectable actions. Create builds a private agent from a general-assistant, tutor, researcher, study-coach, or custom preset. A student can override the preset's style, independently enable web research and study-file analysis, choose an output format, and select English, Spanish, or automatic language matching. The bot shows the complete configuration and saves it only after confirmation. Test privately exercises a saved agent, and edits increment the displayed configuration version.
+
+Agents use the bot's configured `OPENROUTER_MODEL`; students cannot provide model IDs, arbitrary tools, code, database access, or secrets. Web-enabled agents receive OpenRouter's `openrouter:web_search` server tool. File-enabled agents reuse the existing one-run attachment processing. An agent can enable both tools. Runs remain stateless, are limited to 5 requests per user per minute and 30 per minute across this bot process, and use OpenRouter provider routing with `data_collection: deny`. Agent profiles persist in Oracle; uploaded files and conversations are not saved by the agent feature.
 
 `/dev ask` gives implementation guidance. You can attach one optional Markdown, text, or source-code file to provide project context (1 MB maximum). The bot reads only that direct Discord attachment in memory for the request, rejects redirects and non-Discord download hosts, and does not retain the file. The question and file text are sent to OpenRouter with provider routing set to deny data-collecting endpoints. The request does not require a zero-data-retention endpoint. The command does not edit project files, run code, or access a database. For project-specific answers, attach the relevant README or source file; without an attachment, the answer is general guidance.
 
@@ -95,7 +97,7 @@ AGENT_STORE_PASSWORD=<agent-store-runtime-password>
 AGENT_STORE_OWNER=BOT_AGENT_OWNER
 ```
 
-Connect as `AGENT_STORE_OWNER` and run [`db/agent-store-schema.sql`](db/agent-store-schema.sql). Then grant only the table operations required by the bot to the runtime account:
+For a new installation, connect as `AGENT_STORE_OWNER` and run [`db/agent-store-schema.sql`](db/agent-store-schema.sql). When upgrading a table created by the earlier agent implementation, back it up and run [`db/agent-store-v2-migration.sql`](db/agent-store-v2-migration.sql) once instead. Then grant only the table operations required by the bot to the runtime account:
 
 ```sql
 GRANT SELECT, INSERT, UPDATE, DELETE ON AGENT_PROFILES TO BOT_AGENT_APP;
@@ -117,7 +119,7 @@ The commands for the example app are set up in `commands.js`. All of the command
 npm run register
 ```
 
-In server channels, the app posts only its command response; it does not create a separate message containing the command inputs. Replies that would otherwise be ephemeral are made public. Commands used in DMs retain their existing visibility behavior.
+In server channels, general learning and game commands post their response publicly. Agent-builder and database interactions remain ephemeral so private configurations, agent results, and database results are not exposed to the channel. Commands used in DMs retain their existing visibility behavior.
 
 Run registration after adding or changing commands, then restart `discord-example.service`. The `/db` action selector offers a connection check, an administrator catalog scan, and a query action. `/agent` becomes usable after the profile table and separate runtime credentials are configured.
 
