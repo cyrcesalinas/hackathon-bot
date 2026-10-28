@@ -394,6 +394,202 @@ function getOptionValue(options, name) {
   return options?.find((option) => option.name === name)?.value;
 }
 
+const STUDY_ACTIVITIES = new Set(['guide', 'question', 'exam', 'upload']);
+const STUDY_FILE_TYPES = ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'];
+
+function buildStudyMenuResponse() {
+  return {
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.EPHEMERAL,
+      content: 'Choose a study activity:',
+      components: [{
+        type: MessageComponentTypes.ACTION_ROW,
+        components: [
+          ['guide', 'Guide'],
+          ['question', 'Question'],
+          ['exam', 'Exam'],
+          ['upload', 'Upload'],
+        ].map(([activity, label]) => ({
+          type: MessageComponentTypes.BUTTON,
+          style: ButtonStyleTypes.SECONDARY,
+          custom_id: `study_action:${activity}`,
+          label,
+        })),
+      }],
+    },
+  };
+}
+
+function studyTextInput(label, placeholder, { required = false, style = 1, maxLength = 500 } = {}) {
+  return {
+    type: MessageComponentTypes.LABEL,
+    label,
+    component: {
+      type: MessageComponentTypes.INPUT_TEXT,
+      custom_id: 'input',
+      style,
+      required,
+      max_length: maxLength,
+      placeholder,
+    },
+  };
+}
+
+function studyFileInput(required) {
+  return {
+    type: MessageComponentTypes.LABEL,
+    label: 'Study file',
+    description: 'PDF, TXT, Markdown, CSV, or JSON; up to 8 MB.',
+    component: {
+      type: 19,
+      custom_id: 'file',
+      required,
+      min_values: required ? 1 : 0,
+      max_values: 1,
+      file_types: STUDY_FILE_TYPES,
+    },
+  };
+}
+
+function buildStudyModal(activity) {
+  if (!STUDY_ACTIVITIES.has(activity)) return undefined;
+
+  let components;
+  if (activity === 'question') {
+    components = [studyTextInput('Question', 'What do you want to understand?', {
+      required: true,
+      style: 2,
+      maxLength: 1500,
+    })];
+  } else if (activity === 'upload') {
+    components = [studyFileInput(true)];
+  } else if (activity === 'guide') {
+    components = [
+      studyTextInput('Topic (optional)', 'What should the guide cover?'),
+      studyFileInput(false),
+    ];
+  } else {
+    components = [
+      studyTextInput('Topic (optional)', 'What should the exam cover?'),
+      {
+        type: MessageComponentTypes.LABEL,
+        label: 'Number of questions',
+        component: {
+          type: MessageComponentTypes.STRING_SELECT,
+          custom_id: 'questions',
+          placeholder: 'Choose 3–10 questions',
+          min_values: 1,
+          max_values: 1,
+          required: true,
+          options: Array.from({ length: 8 }, (_, index) => index + 3).map((count) => ({
+            label: String(count),
+            value: String(count),
+            default: count === 5,
+          })),
+        },
+      },
+      studyFileInput(false),
+    ];
+  }
+
+  return {
+    type: InteractionResponseType.MODAL,
+    data: {
+      custom_id: `study_modal:${activity}`,
+      title: `Study: ${activity[0].toUpperCase()}${activity.slice(1)}`,
+      components,
+    },
+  };
+}
+
+function getStudyModalRequest(modalData) {
+  const match = /^study_modal:(guide|question|exam|upload)$/.exec(modalData?.custom_id ?? '');
+  if (!match) return { error: "I don't recognize that study activity." };
+
+  const [, activity] = match;
+  const options = [];
+  for (const label of modalData.components ?? []) {
+    const component = label?.component ?? label;
+    if (!component?.custom_id) continue;
+    if (component.custom_id === 'input' && typeof component.value === 'string') {
+      options.push({ type: 3, name: 'input', value: component.value });
+    } else if (component.custom_id === 'questions' && Array.isArray(component.values)) {
+      options.push({ type: 4, name: 'questions', value: Number(component.values[0]) });
+    } else if (component.custom_id === 'file' && Array.isArray(component.values)) {
+      options.push({ type: 11, name: 'file', value: component.values[0] });
+    }
+  }
+
+  return getStudyCommandRequest(
+    [{ type: 1, name: activity, options }],
+    modalData.resolved?.attachments,
+  );
+}
+
+function handleStudyRequest(res, req, studyRequest) {
+  if (studyRequest.error) {
+    return res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: studyRequest.error,
+        flags: InteractionResponseFlags.EPHEMERAL,
+      },
+    });
+  }
+
+  const studyModel = getOpenRouterModel('study');
+  if (!isOpenRouterConfigured(studyModel)) {
+    return res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        flags: InteractionResponseFlags.EPHEMERAL,
+        content: 'Set OPENROUTER_API_KEY and either OPENROUTER_STUDY_MODEL or OPENROUTER_MODEL in the bot environment.',
+      },
+    });
+  }
+
+  const responseFormatter = studyRequest.name === 'guide'
+    ? (answer) => {
+      const filename = getStudyGuideFilename(studyRequest);
+      return {
+        content: `Your complete study guide is attached as \`${filename}\`.`,
+        attachment: { filename, content: answer },
+      };
+    }
+    : studyRequest.name === 'exam'
+      ? (answer, _request, ownerUserId) => {
+        const parsedQuiz = parseStudyQuiz(answer, studyRequest.questionCount);
+        cleanExpiredStudyQuizzes();
+        const quizId = randomUUID();
+        const quiz = {
+          id: quizId,
+          ownerUserId,
+          ...parsedQuiz,
+          answers: new Array(parsedQuiz.questions.length).fill(null),
+          questionIndex: 0,
+          status: 'answering',
+          expiresAt: Date.now() + STUDY_QUIZ_TTL_MS,
+        };
+        pendingStudyQuizzes.set(quizId, quiz);
+        return { ...renderStudyQuiz(quiz), studyQuizId: quizId };
+      }
+      : undefined;
+
+  const activityName = studyRequest.name === 'ask' ? 'question' : studyRequest.name;
+  return deferOpenRouterCommand(
+    res,
+    req,
+    async () => ({
+      ...(await buildStudyOpenRouterRequest(studyRequest)),
+      model: studyModel,
+    }),
+    `/study ${activityName}`,
+    "I couldn't complete the study request right now. Please try again shortly.",
+    responseFormatter,
+  );
+}
+
 function makeServerRepliesPublic(res, interaction) {
   if (!interaction.guild_id || !interaction.channel_id) return;
 
@@ -886,10 +1082,11 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
   }
 
   const isPrivateInteraction =
-    (type === InteractionType.APPLICATION_COMMAND && ['agent', 'db'].includes(data?.name)) ||
+    (type === InteractionType.APPLICATION_COMMAND && ['agent', 'db', 'study'].includes(data?.name)) ||
     (type === InteractionType.MESSAGE_COMPONENT && (
       data?.custom_id?.startsWith('agent_save:') ||
-      data?.custom_id?.startsWith('agent_cancel:')
+      data?.custom_id?.startsWith('agent_cancel:') ||
+      data?.custom_id?.startsWith('study_action:')
     ));
   if (
     !isPrivateInteraction &&
@@ -1106,66 +1303,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
 
 
     if (name === 'study') {
-      const studyRequest = getStudyCommandRequest(data.options, data.resolved?.attachments);
-      if (studyRequest.error) {
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: studyRequest.error,
-            flags: InteractionResponseFlags.EPHEMERAL,
-          },
-        });
-      }
-
-      const studyModel = getOpenRouterModel('study');
-      if (!isOpenRouterConfigured(studyModel)) {
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Set OPENROUTER_API_KEY and either OPENROUTER_STUDY_MODEL or OPENROUTER_MODEL in the bot environment.',
-          },
-        });
-      }
-
-      const responseFormatter = studyRequest.name === 'guide'
-        ? (answer) => {
-          const filename = getStudyGuideFilename(studyRequest);
-          return {
-            content: `Your complete study guide is attached as \`${filename}\`.`,
-            attachment: { filename, content: answer },
-          };
-        }
-        : studyRequest.name === 'exam'
-          ? (answer, _request, ownerUserId) => {
-            const parsedQuiz = parseStudyQuiz(answer, studyRequest.questionCount);
-            cleanExpiredStudyQuizzes();
-            const quizId = randomUUID();
-            const quiz = {
-              id: quizId,
-              ownerUserId,
-              ...parsedQuiz,
-              answers: new Array(parsedQuiz.questions.length).fill(null),
-              questionIndex: 0,
-              status: 'answering',
-              expiresAt: Date.now() + STUDY_QUIZ_TTL_MS,
-            };
-            pendingStudyQuizzes.set(quizId, quiz);
-            return { ...renderStudyQuiz(quiz), studyQuizId: quizId };
-          }
-        : undefined;
-
-      return deferOpenRouterCommand(
-        res,
-        req,
-        async () => ({
-          ...(await buildStudyOpenRouterRequest(studyRequest)),
-          model: studyModel,
-        }),
-        `/study ${studyRequest.name}`,
-        "I couldn't complete the study request right now. Please try again shortly.",
-        responseFormatter,
-      );
+      return res.send(buildStudyMenuResponse());
     }
 
     console.error(`unknown command: ${name}`);
@@ -1178,6 +1316,13 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
    */
   if (type === InteractionType.MESSAGE_COMPONENT) {
     const componentId = data.custom_id;
+
+    if (componentId.startsWith('study_action:')) {
+      const activity = componentId.slice('study_action:'.length);
+      const modal = buildStudyModal(activity);
+      if (modal) return res.send(modal);
+      return res.status(400).json({ error: 'unknown study activity' });
+    }
 
     if (componentId.startsWith('study_quiz:')) {
       return handleStudyQuizButton(res, req, componentId);
@@ -1192,6 +1337,14 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     }
 
     return res.status(400).json({ error: 'unknown component' });
+  }
+
+  if (type === InteractionType.MODAL_SUBMIT) {
+    if (data?.custom_id?.startsWith('study_modal:')) {
+      return handleStudyRequest(res, req, getStudyModalRequest(data));
+    }
+
+    return res.status(400).json({ error: 'unknown modal' });
   }
 
   console.error('unknown interaction type', type);
