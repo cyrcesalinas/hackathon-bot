@@ -2,6 +2,11 @@ import 'dotenv/config';
 import { getRPSChoices } from './game.js';
 import { capitalize, InstallGlobalCommands, RemoveGlobalCommands } from './utils.js';
 import { OCI_TOPICS } from './agents/oci.js';
+import {
+  AGENT_LANGUAGES,
+  AGENT_PRESET_DEFINITIONS,
+  AGENT_RESPONSE_FORMATS,
+} from './agents/agent-config.js';
 
 // Get the game choices from game.js
 function createCommandChoices() {
@@ -177,6 +182,13 @@ const OCI_COMMAND = {
   ],
 };
 
+const AGENT_PRESET_CHOICES = Object.values(AGENT_PRESET_DEFINITIONS)
+  .map(({ name, id }) => ({ name, value: id }));
+const AGENT_RESPONSE_FORMAT_CHOICES = Object.entries(AGENT_RESPONSE_FORMATS)
+  .map(([value, name]) => ({ name, value }));
+const AGENT_LANGUAGE_CHOICES = Object.entries(AGENT_LANGUAGES)
+  .map(([value, name]) => ({ name, value }));
+
 const AGENT_COMMAND = {
   name: 'agent',
   description: 'Create, manage, and run your private learning agents',
@@ -195,24 +207,37 @@ const AGENT_COMMAND = {
         { name: 'Edit agent', value: 'edit' },
         { name: 'List saved agents', value: 'list' },
         { name: 'Run an agent', value: 'run' },
+        { name: 'Test an agent', value: 'test' },
       ],
     },
-    { type: 3, name: 'name', description: 'Agent name (used for create, edit, delete, or run)', required: false, max_length: 32 },
+    { type: 3, name: 'name', description: 'Agent name (used for create, edit, delete, run, or test)', required: false, max_length: 32 },
     { type: 3, name: 'goal', description: 'What should this agent help you learn or build? (create or edit)', required: false, max_length: 1000 },
     { type: 3, name: 'style', description: 'How should it explain or respond? (create or edit)', required: false, max_length: 300 },
     {
       type: 3,
-      name: 'capability',
-      description: 'Agent capability (create or edit)',
+      name: 'preset',
+      description: 'Behavior preset (create or edit)',
       required: false,
-      choices: [
-        { name: 'Chat', value: 'chat' },
-        { name: 'Study help with files', value: 'study' },
-        { name: 'Web research', value: 'research' },
-      ],
+      choices: AGENT_PRESET_CHOICES,
     },
-    { type: 3, name: 'task', description: 'What should the selected agent help you with? (run only)', required: false, max_length: 1500 },
-    { type: 11, name: 'file', description: 'Optional study file (for study agents)', required: false },
+    { type: 5, name: 'web_search', description: 'Enable or disable web research (create or edit)', required: false },
+    { type: 5, name: 'file_analysis', description: 'Enable or disable study-file analysis (create or edit)', required: false },
+    {
+      type: 3,
+      name: 'response_format',
+      description: 'Output format (create or edit)',
+      required: false,
+      choices: AGENT_RESPONSE_FORMAT_CHOICES,
+    },
+    {
+      type: 3,
+      name: 'language',
+      description: 'Response language (create or edit)',
+      required: false,
+      choices: AGENT_LANGUAGE_CHOICES,
+    },
+    { type: 3, name: 'task', description: 'What should the selected agent help you with? (run or test)', required: false, max_length: 1500 },
+    { type: 11, name: 'file', description: 'Optional file (run or test; requires file analysis)', required: false },
     { type: 3, name: 'new_name', description: 'New agent name (edit only)', required: false, max_length: 32 },
   ],
 };

@@ -32,6 +32,12 @@ import {
   saveNewAgent,
   validateNewAgent,
 } from './agents/user-agent.js';
+import {
+  AGENT_LANGUAGES,
+  AGENT_PRESET_DEFINITIONS,
+  AGENT_RESPONSE_FORMATS,
+  AGENT_TOOL_DEFINITIONS,
+} from './agents/agent-config.js';
 import { AdbCatalogScanError, scanAdbCatalog } from './db/catalog-scan.js';
 import { closeAgentStorePool, isAgentStoreConfigured } from './db/agent-store.js';
 import { checkAdbConnection, closeAdbPool, isAdbConfigured } from './db/connection.js';
@@ -324,16 +330,20 @@ function cleanExpiredAgentDrafts() {
   }
 }
 
-function getAgentCapabilityLabel(capability) {
-  return {
-    chat: 'Chat',
-    study: 'Study help with files',
-    research: 'Web research',
-  }[capability] ?? 'Unknown';
-}
-
 function formatAgentSummary(agent) {
-  return `**${agent.name}** · ${getAgentCapabilityLabel(agent.capability)}\nGoal: ${agent.goal}\nStyle: ${agent.style}`;
+  const preset = AGENT_PRESET_DEFINITIONS[agent.preset]?.name ?? 'Custom';
+  const tools = agent.tools
+    .map((tool) => AGENT_TOOL_DEFINITIONS[tool]?.name)
+    .filter(Boolean);
+  const responseFormat = AGENT_RESPONSE_FORMATS[agent.responseFormat] ?? 'Balanced';
+  const language = AGENT_LANGUAGES[agent.language] ?? 'Match the user';
+  return [
+    `**${agent.name}** · ${preset} · v${agent.version ?? 1}`,
+    `Goal: ${agent.goal}`,
+    `Style: ${agent.style}`,
+    `Tools: ${tools.length ? tools.join(', ') : 'No extra tools'}`,
+    `Output: ${responseFormat} · Language: ${language}`,
+  ].join('\n');
 }
 
 function handleAgentCommand(res, req) {
@@ -366,7 +376,11 @@ function handleAgentCommand(res, req) {
         name: getOptionValue(options, 'name'),
         goal: getOptionValue(options, 'goal'),
         style: getOptionValue(options, 'style'),
-        capability: getOptionValue(options, 'capability'),
+        preset: getOptionValue(options, 'preset'),
+        webSearch: getOptionValue(options, 'web_search'),
+        fileAnalysis: getOptionValue(options, 'file_analysis'),
+        responseFormat: getOptionValue(options, 'response_format'),
+        language: getOptionValue(options, 'language'),
       });
     } catch (error) {
       return res.send({
@@ -429,7 +443,8 @@ function handleAgentCommand(res, req) {
     );
   }
 
-  if (action === 'run') {
+  if (action === 'run' || action === 'test') {
+    const isTest = action === 'test';
     const name = getOptionValue(options, 'name');
     const task = getOptionValue(options, 'task');
     const attachmentId = getOptionValue(options, 'file');
@@ -465,8 +480,10 @@ function handleAgentCommand(res, req) {
         const agent = await requireOwnedAgent(userId, name.trim());
         return buildUserAgentRequest(agent, task, attachmentId, req.body.data.resolved?.attachments);
       },
-      '/agent run',
-      'I could not run that agent right now. Please try again shortly.',
+      isTest ? '/agent test' : '/agent run',
+      isTest
+        ? 'I could not test that agent right now. Please try again shortly.'
+        : 'I could not run that agent right now. Please try again shortly.',
     );
   }
 
@@ -476,11 +493,19 @@ function handleAgentCommand(res, req) {
     const newName = getOptionValue(options, 'new_name');
     const goal = getOptionValue(options, 'goal');
     const style = getOptionValue(options, 'style');
-    const capability = getOptionValue(options, 'capability');
+    const preset = getOptionValue(options, 'preset');
+    const webSearch = getOptionValue(options, 'web_search');
+    const fileAnalysis = getOptionValue(options, 'file_analysis');
+    const responseFormat = getOptionValue(options, 'response_format');
+    const language = getOptionValue(options, 'language');
     if (newName !== undefined) patch.name = newName;
     if (goal !== undefined) patch.goal = goal;
     if (style !== undefined) patch.style = style;
-    if (capability !== undefined) patch.capability = capability;
+    if (preset !== undefined) patch.preset = preset;
+    if (webSearch !== undefined) patch.webSearch = webSearch;
+    if (fileAnalysis !== undefined) patch.fileAnalysis = fileAnalysis;
+    if (responseFormat !== undefined) patch.responseFormat = responseFormat;
+    if (language !== undefined) patch.language = language;
     if (typeof name !== 'string' || !name.trim()) {
       return res.send({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -520,7 +545,7 @@ function handleAgentCommand(res, req) {
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
       flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose an action under /agent: Create agent, Delete agent, Edit agent, List saved agents, or Run an agent.',
+      content: 'Choose an action under /agent: Create, Delete, Edit, List, Run, or Test an agent.',
     },
   });
 }
@@ -715,7 +740,16 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     return res.send({ type: InteractionResponseType.PONG });
   }
 
-  if (type === InteractionType.APPLICATION_COMMAND || type === InteractionType.MESSAGE_COMPONENT) {
+  const isPrivateInteraction =
+    (type === InteractionType.APPLICATION_COMMAND && ['agent', 'db'].includes(data?.name)) ||
+    (type === InteractionType.MESSAGE_COMPONENT && (
+      data?.custom_id?.startsWith('agent_save:') ||
+      data?.custom_id?.startsWith('agent_cancel:')
+    ));
+  if (
+    !isPrivateInteraction &&
+    (type === InteractionType.APPLICATION_COMMAND || type === InteractionType.MESSAGE_COMPONENT)
+  ) {
     makeServerRepliesPublic(res, req.body);
   }
 

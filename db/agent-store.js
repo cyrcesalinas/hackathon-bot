@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import oracledb from 'oracledb';
+import { getLegacyCapability, getToolsFromLegacyCapability, normalizeAgentTools } from '../agents/agent-config.js';
 
 const AGENT_POOL_ALIAS = 'discord-bot-agent-store';
 const AGENT_TABLE_NAME = 'AGENT_PROFILES';
@@ -14,19 +15,32 @@ export class AgentStoreConflictError extends Error {
   }
 }
 
+export function resolveAgentStoreConfig(environment = process.env) {
+  const user = environment.AGENT_STORE_USER?.trim() || environment.ADB_USER?.trim() || '';
+  return {
+    user,
+    password: environment.AGENT_STORE_PASSWORD || environment.ADB_PASSWORD || '',
+    owner: (environment.AGENT_STORE_OWNER?.trim() || user).toUpperCase(),
+    connectString: environment.ADB_CONNECT_STRING?.trim() || '',
+    walletDir: environment.ADB_WALLET_DIR?.trim() || '',
+    walletPassword: environment.ADB_WALLET_PASSWORD || '',
+  };
+}
+
 export function isAgentStoreConfigured() {
+  const config = resolveAgentStoreConfig();
   return Boolean(
-    process.env.AGENT_STORE_USER?.trim() &&
-    process.env.AGENT_STORE_PASSWORD &&
-    process.env.AGENT_STORE_OWNER?.trim() &&
-    process.env.ADB_CONNECT_STRING?.trim() &&
-    process.env.ADB_WALLET_DIR?.trim() &&
-    process.env.ADB_WALLET_PASSWORD,
+    config.user &&
+    config.password &&
+    config.owner &&
+    config.connectString &&
+    config.walletDir &&
+    config.walletPassword,
   );
 }
 
-function getQualifiedAgentTable() {
-  const owner = process.env.AGENT_STORE_OWNER?.trim().toUpperCase();
+function getQualifiedAgentTable(config = resolveAgentStoreConfig()) {
+  const { owner } = config;
   if (!owner || !/^[A-Z][A-Z0-9_$#]{0,127}$/.test(owner)) {
     throw new Error('AGENT_STORE_OWNER_INVALID');
   }
@@ -34,18 +48,18 @@ function getQualifiedAgentTable() {
 }
 
 async function getAgentPool() {
+  const config = resolveAgentStoreConfig();
   if (!isAgentStoreConfigured()) throw new Error('AGENT_STORE_NOT_CONFIGURED');
 
   if (!poolPromise) {
-    const walletDir = process.env.ADB_WALLET_DIR.trim();
     poolPromise = oracledb.createPool({
       poolAlias: AGENT_POOL_ALIAS,
-      user: process.env.AGENT_STORE_USER.trim(),
-      password: process.env.AGENT_STORE_PASSWORD,
-      connectString: process.env.ADB_CONNECT_STRING.trim(),
-      configDir: walletDir,
-      walletLocation: walletDir,
-      walletPassword: process.env.ADB_WALLET_PASSWORD,
+      user: config.user,
+      password: config.password,
+      connectString: config.connectString,
+      configDir: config.walletDir,
+      walletLocation: config.walletDir,
+      walletPassword: config.walletPassword,
       poolMin: 0,
       poolMax: 4,
       poolIncrement: 1,
@@ -71,6 +85,13 @@ async function withConnection(callback) {
 
 function mapAgent(row) {
   if (!row) return null;
+  let tools;
+  try {
+    tools = normalizeAgentTools(JSON.parse(row.TOOLS_JSON ?? '[]'));
+  } catch {
+    tools = [];
+  }
+  if (!tools.length) tools = getToolsFromLegacyCapability(row.CAPABILITY);
   return {
     id: row.AGENT_ID,
     ownerUserId: row.OWNER_USER_ID,
@@ -78,6 +99,11 @@ function mapAgent(row) {
     goal: row.GOAL,
     style: row.STYLE,
     capability: row.CAPABILITY,
+    preset: row.PRESET ?? 'custom',
+    tools,
+    responseFormat: row.RESPONSE_FORMAT ?? 'balanced',
+    language: row.LANGUAGE ?? 'auto',
+    version: Number(row.VERSION_NO ?? 1),
     createdAt: row.CREATED_AT,
     updatedAt: row.UPDATED_AT,
   };
@@ -85,7 +111,9 @@ function mapAgent(row) {
 
 async function findAgent(connection, table, ownerUserId, name) {
   const result = await connection.execute(
-    `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY, CREATED_AT, UPDATED_AT
+    `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
+            PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE, VERSION_NO,
+            CREATED_AT, UPDATED_AT
        FROM ${table}
       WHERE OWNER_USER_ID = :ownerUserId AND UPPER(NAME) = UPPER(:name)`,
     { ownerUserId, name },
@@ -102,7 +130,9 @@ function throwStoreError(error) {
 export async function listAgents(ownerUserId) {
   return withConnection(async (connection, table) => {
     const result = await connection.execute(
-      `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY, CREATED_AT, UPDATED_AT
+      `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
+              PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE, VERSION_NO,
+              CREATED_AT, UPDATED_AT
          FROM ${table}
         WHERE OWNER_USER_ID = :ownerUserId
         ORDER BY CREATED_AT DESC
@@ -131,10 +161,27 @@ export async function createAgent(agent) {
       }
 
       const id = randomUUID();
+      const tools = normalizeAgentTools(agent.tools);
       await connection.execute(
-        `INSERT INTO ${table} (AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY)
-         VALUES (:id, :ownerUserId, :name, :goal, :style, :capability)`,
-        { ...agent, id },
+        `INSERT INTO ${table} (
+           AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
+           PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE, VERSION_NO
+         ) VALUES (
+           :id, :ownerUserId, :name, :goal, :style, :capability,
+           :preset, :toolsJson, :responseFormat, :language, 1
+         )`,
+        {
+          id,
+          ownerUserId: agent.ownerUserId,
+          name: agent.name,
+          goal: agent.goal,
+          style: agent.style,
+          capability: getLegacyCapability(tools),
+          preset: agent.preset,
+          toolsJson: JSON.stringify(tools),
+          responseFormat: agent.responseFormat,
+          language: agent.language,
+        },
         { autoCommit: true },
       );
       return { agent: await findAgent(connection, table, agent.ownerUserId, agent.name) };
@@ -150,12 +197,18 @@ export async function updateAgent(ownerUserId, oldName, patch) {
       const current = await findAgent(connection, table, ownerUserId, oldName);
       if (!current) return null;
       const next = { ...current, ...patch };
+      const tools = normalizeAgentTools(next.tools);
       const result = await connection.execute(
         `UPDATE ${table}
             SET NAME = :name,
                 GOAL = :goal,
                 STYLE = :style,
                 CAPABILITY = :capability,
+                PRESET = :preset,
+                TOOLS_JSON = :toolsJson,
+                RESPONSE_FORMAT = :responseFormat,
+                LANGUAGE = :language,
+                VERSION_NO = VERSION_NO + 1,
                 UPDATED_AT = SYSTIMESTAMP
           WHERE OWNER_USER_ID = :ownerUserId AND AGENT_ID = :id`,
         {
@@ -164,7 +217,11 @@ export async function updateAgent(ownerUserId, oldName, patch) {
           name: next.name,
           goal: next.goal,
           style: next.style,
-          capability: next.capability,
+          capability: getLegacyCapability(tools),
+          preset: next.preset,
+          toolsJson: JSON.stringify(tools),
+          responseFormat: next.responseFormat,
+          language: next.language,
         },
         { autoCommit: true },
       );
