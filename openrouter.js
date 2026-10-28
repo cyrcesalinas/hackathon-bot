@@ -1,12 +1,6 @@
 import 'dotenv/config';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_DATETIME_TOOL = {
-  type: 'openrouter:datetime',
-  parameters: {
-    timezone: process.env.OPENROUTER_TIMEZONE?.trim() || 'America/Mexico_City',
-  },
-};
 
 export function isOpenRouterConfigured() {
   return Boolean(
@@ -43,14 +37,14 @@ export async function getOpenRouterAnswer({
     messages: [
       {
         role: 'system',
-        content: `${systemPrompt}\n\nIf the answer depends on the current date or time (for example, "today," "yesterday," or "tomorrow"), consult the date and time tool before answering.`,
+        content: systemPrompt,
       },
       { role: 'user', content: userContent },
     ],
     max_tokens: maxTokens,
-    tools: [OPENROUTER_DATETIME_TOOL, ...(Array.isArray(tools) ? tools : [])],
   };
 
+  if (Array.isArray(tools) && tools.length) requestBody.tools = tools;
   if (plugins) requestBody.plugins = plugins;
   if (provider) requestBody.provider = provider;
 

@@ -205,13 +205,7 @@ export async function buildStudyOpenRouterRequest(request) {
 
   return {
     systemPrompt,
-    userContent: [
-      { type: 'text', text: `${taskPrompt}\nMaterial adjunto: ${filename}` },
-      {
-        type: 'text',
-        text: `File contents:\n${text}${truncated ? '\n\n[The file was shortened to fit the processing limit.]' : ''}`,
-      },
-    ],
+    userContent: `${taskPrompt}\nAttached file: ${filename}\n\nFile contents:\n${text}${truncated ? '\n\n[The file was shortened to fit the processing limit.]' : ''}`,
     maxTokens: request.name === 'exam' || request.name === 'guide' ? 1400 : 900,
   };
 }

@@ -5,6 +5,7 @@ import { resolveAgentStoreConfig } from '../db/agent-store.js';
 import {
   AgentCommandError,
   buildUserAgentRequest,
+  resolveAgentProviderPolicy,
   validateNewAgent,
 } from '../agents/user-agent.js';
 
@@ -110,6 +111,45 @@ test('web-enabled agents receive only the approved OpenRouter search tool', asyn
   assert.deepEqual(request.provider, { data_collection: 'deny' });
   assert.match(request.systemPrompt, /Respond in English/);
   assert.match(request.systemPrompt, /research report/);
+});
+
+test('agent provider data collection is denied by default and can be explicitly allowed', () => {
+  assert.deepEqual(resolveAgentProviderPolicy({}), { data_collection: 'deny' });
+  assert.deepEqual(
+    resolveAgentProviderPolicy({ OPENROUTER_AGENT_DATA_COLLECTION: 'allow' }),
+    { data_collection: 'allow' },
+  );
+  assert.deepEqual(
+    resolveAgentProviderPolicy({ OPENROUTER_AGENT_DATA_COLLECTION: 'unexpected' }),
+    { data_collection: 'deny' },
+  );
+});
+
+test('markdown attachments are sent to OpenRouter as plain text', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('# Notes\n\nA test document.');
+
+  try {
+    const request = await buildUserAgentRequest(
+      makeAgent({ tools: [AGENT_TOOLS.FILE_ANALYSIS] }),
+      'Summarize these notes.',
+      'attachment-1',
+      {
+        'attachment-1': {
+          filename: 'notes.md',
+          size: 27,
+          url: 'https://cdn.discordapp.com/attachments/1/2/notes.md',
+        },
+      },
+    );
+
+    assert.equal(typeof request.userContent, 'string');
+    assert.match(request.userContent, /Attached file: notes\.md/);
+    assert.match(request.userContent, /# Notes/);
+    assert.equal(request.tools, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('attachments are rejected when file analysis is not enabled', async () => {
