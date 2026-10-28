@@ -10,7 +10,6 @@ import {
   verifyKeyMiddleware,
 } from 'discord-interactions';
 import { getRandomEmoji, DiscordRequest } from './utils.js';
-import { getShuffledOptions, getResult } from './game.js';
 import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
 import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
 import { getOciSystemPrompt, getOciTopic } from './agents/oci.js';
@@ -1110,7 +1109,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         return res.status(400).json({ error: 'invalid challenge selection' });
       }
 
-      const result = getResult(game, { id: userId, objectName });
       delete activeGames[gameId];
 
       const endpoint = `webhooks/${process.env.APP_ID}/${req.body.token}/messages/${req.body.message.id}`;
