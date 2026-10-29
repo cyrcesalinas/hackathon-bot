@@ -63,6 +63,8 @@ test('researcher preset enables web research and report output', () => {
   assert.deepEqual(agent.tools, [AGENT_TOOLS.WEB_SEARCH]);
   assert.equal(agent.responseFormat, 'report');
   assert.equal(agent.language, 'auto');
+  assert.equal(agent.visibility, 'private');
+  assert.equal(agent.sharedGuildId, null);
   assert.equal(agent.version, 1);
 });
 

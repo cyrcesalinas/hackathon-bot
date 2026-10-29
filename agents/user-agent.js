@@ -1,5 +1,17 @@
 import { buildStudyOpenRouterRequest, getStudyCommandRequest } from '../study.js';
-import { AgentStoreConflictError, createAgent, deleteAgent, getAgent, listAgents, updateAgent } from '../db/agent-store.js';
+import {
+  AgentStoreConflictError,
+  AgentStoreSharedNameConflictError,
+  createAgent,
+  deleteAgent,
+  getAgent,
+  getRunnableAgent,
+  listAgents,
+  listSharedAgents,
+  shareAgent,
+  unshareAgent,
+  updateAgent,
+} from '../db/agent-store.js';
 import {
   AGENT_LANGUAGES,
   AGENT_PRESET_DEFINITIONS,
@@ -87,6 +99,8 @@ export function validateNewAgent({
     responseFormat: selectedResponseFormat,
     language: normalizeChoice(language, AGENT_LANGUAGES, 'language'),
     capability: getLegacyCapability(tools),
+    visibility: 'private',
+    sharedGuildId: null,
     version: 1,
   };
 }
@@ -156,6 +170,9 @@ export async function editAgent(ownerUserId, oldName, options) {
     if (error instanceof AgentStoreConflictError) {
       throw new AgentCommandError('You already have an agent with that name. Choose a different name.');
     }
+    if (error instanceof AgentStoreSharedNameConflictError) {
+      throw new AgentCommandError('Another shared agent in this server already uses that name. Choose a different name.');
+    }
     throw error;
   }
 }
@@ -167,6 +184,38 @@ export async function removeAgent(ownerUserId, name) {
 
 export async function requireOwnedAgent(ownerUserId, name) {
   const agent = await getAgent(ownerUserId, name);
+  if (!agent) throw new AgentCommandError('I could not find one of your agents with that name.');
+  return agent;
+}
+
+export async function requireRunnableAgent(requesterUserId, guildId, name) {
+  const agent = await getRunnableAgent(requesterUserId, guildId, name);
+  if (!agent) throw new AgentCommandError('I could not find an agent you can run with that name.');
+  return agent;
+}
+
+export async function listGuildSharedAgents(guildId) {
+  return listSharedAgents(guildId);
+}
+
+export async function shareOwnedAgent(ownerUserId, name, guildId) {
+  if (!guildId) {
+    throw new AgentCommandError('Agents can only be shared from inside a Discord server.');
+  }
+  try {
+    const agent = await shareAgent(ownerUserId, name, guildId);
+    if (!agent) throw new AgentCommandError('I could not find one of your agents with that name.');
+    return agent;
+  } catch (error) {
+    if (error instanceof AgentStoreSharedNameConflictError) {
+      throw new AgentCommandError('Another shared agent in this server already uses that name. Rename yours before sharing it.');
+    }
+    throw error;
+  }
+}
+
+export async function unshareOwnedAgent(ownerUserId, name) {
+  const agent = await unshareAgent(ownerUserId, name);
   if (!agent) throw new AgentCommandError('I could not find one of your agents with that name.');
   return agent;
 }
@@ -229,11 +278,11 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
 
   if (attachmentId !== undefined) {
     const options = [
-      { name: 'question', value: task },
+      { name: 'topic', value: task },
       { name: 'file', value: attachmentId },
     ];
     const studyRequest = getStudyCommandRequest(
-      [{ type: 1, name: 'ask', options }],
+      [{ type: 1, name: 'guide', options }],
       resolvedAttachments,
     );
     if (studyRequest.error) throw new AgentCommandError(studyRequest.error);

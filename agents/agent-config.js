@@ -69,6 +69,11 @@ export const AGENT_LANGUAGES = Object.freeze({
   es: 'Spanish',
 });
 
+export const AGENT_VISIBILITIES = Object.freeze({
+  private: 'Private',
+  guild: 'Shared with this server',
+});
+
 export function getAgentPreset(presetId) {
   return AGENT_PRESET_DEFINITIONS[presetId] ?? null;
 }

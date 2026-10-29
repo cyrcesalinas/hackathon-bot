@@ -31,10 +31,14 @@ import {
   AgentCommandError,
   buildUserAgentRequest,
   editAgent,
+  listGuildSharedAgents,
   listAgents,
   removeAgent,
   requireOwnedAgent,
+  requireRunnableAgent,
   saveNewAgent,
+  shareOwnedAgent,
+  unshareOwnedAgent,
   validateNewAgent,
 } from './agents/user-agent.js';
 import {
@@ -42,6 +46,7 @@ import {
   AGENT_PRESET_DEFINITIONS,
   AGENT_RESPONSE_FORMATS,
   AGENT_TOOL_DEFINITIONS,
+  AGENT_VISIBILITIES,
 } from './agents/agent-config.js';
 import { AdbCatalogScanError, scanAdbCatalog } from './db/catalog-scan.js';
 import { closeAgentStorePool, isAgentStoreConfigured } from './db/agent-store.js';
@@ -367,10 +372,18 @@ async function answerInteraction(
   }
 }
 
-function deferOpenRouterCommand(res, req, requestFactory, operation, failureMessage, responseFormatter) {
+function deferOpenRouterCommand(
+  res,
+  req,
+  requestFactory,
+  operation,
+  failureMessage,
+  responseFormatter,
+  { ephemeral = true } = {},
+) {
   res.send({
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { flags: InteractionResponseFlags.EPHEMERAL },
+    data: ephemeral ? { flags: InteractionResponseFlags.EPHEMERAL } : {},
   });
 
   setImmediate(() => {
@@ -691,19 +704,21 @@ function cleanExpiredAgentDrafts() {
   }
 }
 
-function formatAgentSummary(agent) {
+function formatAgentSummary(agent, { showOwner = false } = {}) {
   const preset = AGENT_PRESET_DEFINITIONS[agent.preset]?.name ?? 'Custom';
   const tools = agent.tools
     .map((tool) => AGENT_TOOL_DEFINITIONS[tool]?.name)
     .filter(Boolean);
   const responseFormat = AGENT_RESPONSE_FORMATS[agent.responseFormat] ?? 'Balanced';
   const language = AGENT_LANGUAGES[agent.language] ?? 'Match the user';
+  const visibility = AGENT_VISIBILITIES[agent.visibility] ?? AGENT_VISIBILITIES.private;
   return [
     `**${agent.name}** · ${preset} · v${agent.version ?? 1}`,
+    ...(showOwner ? [`Creator: <@${agent.ownerUserId}>`] : []),
     `Goal: ${agent.goal}`,
     `Style: ${agent.style}`,
     `Tools: ${tools.length ? tools.join(', ') : 'No extra tools'}`,
-    `Output: ${responseFormat} · Language: ${language}`,
+    `Output: ${responseFormat} · Language: ${language} · ${visibility}`,
   ].join('\n');
 }
 
@@ -726,6 +741,7 @@ function handleAgentCommand(res, req) {
     });
   }
 
+  const guildId = req.body.guild_id;
   const options = req.body.data.options ?? [];
   const action = getOptionValue(options, 'action');
 
@@ -797,10 +813,64 @@ function handleAgentCommand(res, req) {
       async () => {
         const agents = await listAgents(userId);
         if (!agents.length) return 'You have no saved agents yet. Start with /agent and choose Create agent.';
-        return `Your private agents (${agents.length}):\n\n${agents.map(formatAgentSummary).join('\n\n')}`;
+        return `Your agents (${agents.length}):\n\n${agents.map(formatAgentSummary).join('\n\n')}`;
       },
       '/agent list',
       'I could not load your agents right now. Please try again shortly.',
+    );
+  }
+
+  if (action === 'shared') {
+    if (!guildId) {
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          flags: InteractionResponseFlags.EPHEMERAL,
+          content: 'Shared agents are available only inside a Discord server.',
+        },
+      });
+    }
+    return deferAgentOperation(
+      res,
+      req,
+      async () => {
+        const agents = await listGuildSharedAgents(guildId);
+        if (!agents.length) return 'This server has no shared agents yet.';
+        return `Shared agents in this server (${agents.length}):\n\n${agents
+          .map((agent) => formatAgentSummary(agent, { showOwner: true }))
+          .join('\n\n')}`;
+      },
+      '/agent shared',
+      'I could not load this server\'s shared agents right now. Please try again shortly.',
+    );
+  }
+
+  if (action === 'share' || action === 'unshare') {
+    const name = getOptionValue(options, 'name');
+    if (typeof name !== 'string' || !name.trim()) {
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          flags: InteractionResponseFlags.EPHEMERAL,
+          content: 'Enter the name of one of your agents.',
+        },
+      });
+    }
+    return deferAgentOperation(
+      res,
+      req,
+      async () => {
+        const agent = action === 'share'
+          ? await shareOwnedAgent(userId, name.trim(), guildId)
+          : await unshareOwnedAgent(userId, name.trim());
+        return action === 'share'
+          ? `Shared your agent with this server:\n\n${formatAgentSummary(agent)}`
+          : `Made your agent private:\n\n${formatAgentSummary(agent)}`;
+      },
+      action === 'share' ? '/agent share' : '/agent unshare',
+      action === 'share'
+        ? 'I could not share that agent right now. Please try again shortly.'
+        : 'I could not make that agent private right now. Please try again shortly.',
     );
   }
 
@@ -838,13 +908,17 @@ function handleAgentCommand(res, req) {
       res,
       req,
       async () => {
-        const agent = await requireOwnedAgent(userId, name.trim());
+        const agent = isTest
+          ? await requireOwnedAgent(userId, name.trim())
+          : await requireRunnableAgent(userId, guildId, name.trim());
         return buildUserAgentRequest(agent, task, attachmentId, req.body.data.resolved?.attachments);
       },
       isTest ? '/agent test' : '/agent run',
       isTest
         ? 'I could not test that agent right now. Please try again shortly.'
         : 'I could not run that agent right now. Please try again shortly.',
+      undefined,
+      { ephemeral: isTest },
     );
   }
 
@@ -906,7 +980,7 @@ function handleAgentCommand(res, req) {
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
       flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose an action under /agent: Create, Delete, Edit, List, Run, or Test an agent.',
+      content: 'Choose an action under /agent: Create, Delete, Edit, List, Browse shared, Share, Make private, Run, or Test an agent.',
     },
   });
 }

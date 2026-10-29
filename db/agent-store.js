@@ -15,6 +15,13 @@ export class AgentStoreConflictError extends Error {
   }
 }
 
+export class AgentStoreSharedNameConflictError extends Error {
+  constructor() {
+    super('AGENT_SHARED_NAME_CONFLICT');
+    this.name = 'AgentStoreSharedNameConflictError';
+  }
+}
+
 export function resolveAgentStoreConfig(environment = process.env) {
   const user = environment.AGENT_STORE_USER?.trim() || environment.ADB_USER?.trim() || '';
   return {
@@ -103,6 +110,8 @@ function mapAgent(row) {
     tools,
     responseFormat: row.RESPONSE_FORMAT ?? 'balanced',
     language: row.LANGUAGE ?? 'auto',
+    visibility: row.VISIBILITY ?? 'private',
+    sharedGuildId: row.SHARED_GUILD_ID ?? null,
     version: Number(row.VERSION_NO ?? 1),
     createdAt: row.CREATED_AT,
     updatedAt: row.UPDATED_AT,
@@ -112,7 +121,8 @@ function mapAgent(row) {
 async function findAgent(connection, table, ownerUserId, name) {
   const result = await connection.execute(
     `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
-            PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE, VERSION_NO,
+            PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE,
+            VISIBILITY, SHARED_GUILD_ID, VERSION_NO,
             CREATED_AT, UPDATED_AT
        FROM ${table}
       WHERE OWNER_USER_ID = :ownerUserId AND UPPER(NAME) = UPPER(:name)`,
@@ -123,7 +133,12 @@ async function findAgent(connection, table, ownerUserId, name) {
 }
 
 function throwStoreError(error) {
-  if (error?.errorNum === 1) throw new AgentStoreConflictError();
+  if (error?.errorNum === 1) {
+    if (String(error?.message).includes('AGENT_PROFILES_GUILD_NAME_UQ')) {
+      throw new AgentStoreSharedNameConflictError();
+    }
+    throw new AgentStoreConflictError();
+  }
   throw error;
 }
 
@@ -131,7 +146,8 @@ export async function listAgents(ownerUserId) {
   return withConnection(async (connection, table) => {
     const result = await connection.execute(
       `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
-              PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE, VERSION_NO,
+              PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE,
+              VISIBILITY, SHARED_GUILD_ID, VERSION_NO,
               CREATED_AT, UPDATED_AT
          FROM ${table}
         WHERE OWNER_USER_ID = :ownerUserId
@@ -146,6 +162,47 @@ export async function listAgents(ownerUserId) {
 
 export async function getAgent(ownerUserId, name) {
   return withConnection((connection, table) => findAgent(connection, table, ownerUserId, name));
+}
+
+export async function getRunnableAgent(requesterUserId, guildId, name) {
+  return withConnection(async (connection, table) => {
+    const result = await connection.execute(
+      `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
+              PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE,
+              VISIBILITY, SHARED_GUILD_ID, VERSION_NO,
+              CREATED_AT, UPDATED_AT
+         FROM ${table}
+        WHERE UPPER(NAME) = UPPER(:name)
+          AND (
+            OWNER_USER_ID = :requesterUserId OR
+            (VISIBILITY = 'guild' AND SHARED_GUILD_ID = :guildId)
+          )
+        ORDER BY CASE WHEN OWNER_USER_ID = :requesterUserId THEN 0 ELSE 1 END
+        FETCH FIRST 1 ROW ONLY`,
+      { requesterUserId, guildId: guildId ?? '', name },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 1 },
+    );
+    return mapAgent(result.rows[0]);
+  });
+}
+
+export async function listSharedAgents(guildId) {
+  if (!guildId) return [];
+  return withConnection(async (connection, table) => {
+    const result = await connection.execute(
+      `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
+              PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE,
+              VISIBILITY, SHARED_GUILD_ID, VERSION_NO,
+              CREATED_AT, UPDATED_AT
+         FROM ${table}
+        WHERE VISIBILITY = 'guild' AND SHARED_GUILD_ID = :guildId
+        ORDER BY UPPER(NAME), CREATED_AT
+        FETCH FIRST 50 ROWS ONLY`,
+      { guildId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    return result.rows.map(mapAgent);
+  });
 }
 
 export async function createAgent(agent) {
@@ -231,6 +288,48 @@ export async function updateAgent(ownerUserId, oldName, patch) {
   } catch (error) {
     throwStoreError(error);
   }
+}
+
+export async function shareAgent(ownerUserId, name, guildId) {
+  try {
+    return await withConnection(async (connection, table) => {
+      const current = await findAgent(connection, table, ownerUserId, name);
+      if (!current) return null;
+      const result = await connection.execute(
+        `UPDATE ${table}
+            SET VISIBILITY = 'guild',
+                SHARED_GUILD_ID = :guildId,
+                VERSION_NO = VERSION_NO + 1,
+                UPDATED_AT = SYSTIMESTAMP
+          WHERE OWNER_USER_ID = :ownerUserId AND AGENT_ID = :id`,
+        { ownerUserId, id: current.id, guildId },
+        { autoCommit: true },
+      );
+      if (!result.rowsAffected) return null;
+      return findAgent(connection, table, ownerUserId, current.name);
+    });
+  } catch (error) {
+    throwStoreError(error);
+  }
+}
+
+export async function unshareAgent(ownerUserId, name) {
+  return withConnection(async (connection, table) => {
+    const current = await findAgent(connection, table, ownerUserId, name);
+    if (!current) return null;
+    const result = await connection.execute(
+      `UPDATE ${table}
+          SET VISIBILITY = 'private',
+              SHARED_GUILD_ID = NULL,
+              VERSION_NO = VERSION_NO + 1,
+              UPDATED_AT = SYSTIMESTAMP
+        WHERE OWNER_USER_ID = :ownerUserId AND AGENT_ID = :id`,
+      { ownerUserId, id: current.id },
+      { autoCommit: true },
+    );
+    if (!result.rowsAffected) return null;
+    return findAgent(connection, table, ownerUserId, current.name);
+  });
 }
 
 export async function deleteAgent(ownerUserId, name) {
