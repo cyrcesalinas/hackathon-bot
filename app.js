@@ -36,14 +36,12 @@ import {
   AgentCommandError,
   buildUserAgentRequest,
   editAgent,
-  listGuildSharedAgents,
+  listAvailableAgents,
   listAgents,
   removeAgent,
   requireOwnedAgent,
   requireRunnableAgent,
   saveNewAgent,
-  shareOwnedAgent,
-  unshareOwnedAgent,
   validateNewAgent,
 } from './agents/user-agent.js';
 import {
@@ -629,7 +627,7 @@ function formatAgentSummary(agent, { showOwner = false } = {}) {
     .filter(Boolean);
   const responseFormat = AGENT_RESPONSE_FORMATS[agent.responseFormat] ?? 'Balanced';
   const language = AGENT_LANGUAGES[agent.language] ?? 'Match the user';
-  const visibility = AGENT_VISIBILITIES[agent.visibility] ?? AGENT_VISIBILITIES.private;
+  const visibility = AGENT_VISIBILITIES[agent.visibility] ?? AGENT_VISIBILITIES.global;
   return [
     `**${agent.name}** · ${preset} · v${agent.version ?? 1}`,
     ...(showOwner ? [`Creator: <@${agent.ownerUserId}>`] : []),
@@ -659,7 +657,6 @@ function handleAgentCommand(res, req) {
     });
   }
 
-  const guildId = req.body.guild_id;
   const options = req.body.data.options ?? [];
   const action = getOptionValue(options, 'action');
 
@@ -700,7 +697,7 @@ function handleAgentCommand(res, req) {
       data: {
         flags: InteractionResponseFlags.EPHEMERAL,
         allowed_mentions: { parse: [] },
-        content: `Preview your private agent\n\n${formatAgentSummary(profile)}\n\nIt will use the bot's configured OpenRouter model. Save it, then choose Run an agent from /agent.`,
+        content: `Preview your agent\n\n${formatAgentSummary(profile)}\n\nIts name must be unique, and anyone who uses the bot will be able to run it. It will use the bot's configured OpenRouter model. Save it, then choose Run an agent from /agent.`,
         components: [
           {
             type: MessageComponentTypes.ACTION_ROW,
@@ -738,58 +735,30 @@ function handleAgentCommand(res, req) {
     );
   }
 
-  if (action === 'shared') {
-    if (!guildId) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          flags: InteractionResponseFlags.EPHEMERAL,
-          content: 'Shared agents are available only inside a Discord server.',
-        },
-      });
-    }
+  if (action === 'browse' || action === 'shared') {
     return deferAgentOperation(
       res,
       req,
       async () => {
-        const agents = await listGuildSharedAgents(guildId);
-        if (!agents.length) return 'This server has no shared agents yet.';
-        return `Shared agents in this server (${agents.length}):\n\n${agents
+        const agents = await listAvailableAgents();
+        if (!agents.length) return 'No agents have been created yet.';
+        return `Available agents (${agents.length}):\n\n${agents
           .map((agent) => formatAgentSummary(agent, { showOwner: true }))
           .join('\n\n')}`;
       },
-      '/agent shared',
-      'I could not load this server\'s shared agents right now. Please try again shortly.',
+      '/agent browse',
+      'I could not load the available agents right now. Please try again shortly.',
     );
   }
 
   if (action === 'share' || action === 'unshare') {
-    const name = getOptionValue(options, 'name');
-    if (typeof name !== 'string' || !name.trim()) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          flags: InteractionResponseFlags.EPHEMERAL,
-          content: 'Enter the name of one of your agents.',
-        },
-      });
-    }
-    return deferAgentOperation(
-      res,
-      req,
-      async () => {
-        const agent = action === 'share'
-          ? await shareOwnedAgent(userId, name.trim(), guildId)
-          : await unshareOwnedAgent(userId, name.trim());
-        return action === 'share'
-          ? `Shared your agent with this server:\n\n${formatAgentSummary(agent)}`
-          : `Made your agent private:\n\n${formatAgentSummary(agent)}`;
+    return res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        flags: InteractionResponseFlags.EPHEMERAL,
+        content: 'Sharing controls are no longer needed. Every saved agent is available to everyone who uses the bot.',
       },
-      action === 'share' ? '/agent share' : '/agent unshare',
-      action === 'share'
-        ? 'I could not share that agent right now. Please try again shortly.'
-        : 'I could not make that agent private right now. Please try again shortly.',
-    );
+    });
   }
 
   if (action === 'run' || action === 'test') {
@@ -828,7 +797,7 @@ function handleAgentCommand(res, req) {
       async () => {
         const agent = isTest
           ? await requireOwnedAgent(userId, name.trim())
-          : await requireRunnableAgent(userId, guildId, name.trim());
+          : await requireRunnableAgent(name.trim());
         return {
           ...(await buildUserAgentRequest(agent, task, attachmentId, req.body.data.resolved?.attachments)),
           responseDelivery: {
@@ -905,7 +874,7 @@ function handleAgentCommand(res, req) {
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
       flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose an action under /agent: Create, Delete, Edit, List, Browse shared, Share, Make private, Run, or Test an agent.',
+      content: 'Choose an action under /agent: Create, Delete, Edit, List, Browse all, Run, or Test an agent.',
     },
   });
 }
@@ -966,7 +935,7 @@ function handleAgentDraftButton(res, req, componentId) {
       try {
         const agent = await saveNewAgent(draft.profile);
         pendingAgentDrafts.delete(draftId);
-        return `Saved **${agent.name}** as a private agent. Choose Run an agent from /agent to try it.`;
+        return `Saved **${agent.name}**. It is now available for anyone using the bot to run.`;
       } catch (error) {
         if (error?.userMessage) pendingAgentDrafts.delete(draftId);
         else draft.saving = false;

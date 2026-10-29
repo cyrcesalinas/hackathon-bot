@@ -1,15 +1,12 @@
 import { buildStudyOpenRouterRequest, getStudyCommandRequest } from '../study.js';
 import {
   AgentStoreConflictError,
-  AgentStoreSharedNameConflictError,
   createAgent,
   deleteAgent,
   getAgent,
   getRunnableAgent,
   listAgents,
-  listSharedAgents,
-  shareAgent,
-  unshareAgent,
+  listGlobalAgents,
   updateAgent,
 } from '../db/agent-store.js';
 import {
@@ -99,22 +96,21 @@ export function validateNewAgent({
     responseFormat: selectedResponseFormat,
     language: normalizeChoice(language, AGENT_LANGUAGES, 'language'),
     capability: getLegacyCapability(tools),
-    visibility: 'private',
-    sharedGuildId: null,
+    visibility: 'global',
     version: 1,
   };
 }
 
-export async function saveNewAgent(profile) {
+export async function saveNewAgent(profile, createAgentOperation = createAgent) {
   try {
-    const result = await createAgent(profile);
+    const result = await createAgentOperation(profile);
     if (result.limitReached) {
       throw new AgentCommandError('You have reached the limit of 20 saved agents. Delete one before creating another.');
     }
     return result.agent;
   } catch (error) {
     if (error instanceof AgentStoreConflictError) {
-      throw new AgentCommandError('You already have an agent with that name. Choose a different name.');
+      throw new AgentCommandError('That agent name is already taken. Choose a different name.');
     }
     throw error;
   }
@@ -168,10 +164,7 @@ export async function editAgent(ownerUserId, oldName, options) {
     return updated;
   } catch (error) {
     if (error instanceof AgentStoreConflictError) {
-      throw new AgentCommandError('You already have an agent with that name. Choose a different name.');
-    }
-    if (error instanceof AgentStoreSharedNameConflictError) {
-      throw new AgentCommandError('Another shared agent in this server already uses that name. Choose a different name.');
+      throw new AgentCommandError('That agent name is already taken. Choose a different name.');
     }
     throw error;
   }
@@ -188,36 +181,14 @@ export async function requireOwnedAgent(ownerUserId, name) {
   return agent;
 }
 
-export async function requireRunnableAgent(requesterUserId, guildId, name) {
-  const agent = await getRunnableAgent(requesterUserId, guildId, name);
-  if (!agent) throw new AgentCommandError('I could not find an agent you can run with that name.');
+export async function requireRunnableAgent(name) {
+  const agent = await getRunnableAgent(name);
+  if (!agent) throw new AgentCommandError('I could not find an agent with that name.');
   return agent;
 }
 
-export async function listGuildSharedAgents(guildId) {
-  return listSharedAgents(guildId);
-}
-
-export async function shareOwnedAgent(ownerUserId, name, guildId) {
-  if (!guildId) {
-    throw new AgentCommandError('Agents can only be shared from inside a Discord server.');
-  }
-  try {
-    const agent = await shareAgent(ownerUserId, name, guildId);
-    if (!agent) throw new AgentCommandError('I could not find one of your agents with that name.');
-    return agent;
-  } catch (error) {
-    if (error instanceof AgentStoreSharedNameConflictError) {
-      throw new AgentCommandError('Another shared agent in this server already uses that name. Rename yours before sharing it.');
-    }
-    throw error;
-  }
-}
-
-export async function unshareOwnedAgent(ownerUserId, name) {
-  const agent = await unshareAgent(ownerUserId, name);
-  if (!agent) throw new AgentCommandError('I could not find one of your agents with that name.');
-  return agent;
+export async function listAvailableAgents() {
+  return listGlobalAgents();
 }
 
 function getResponseFormatInstruction(responseFormat) {

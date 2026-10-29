@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AGENT_TOOLS } from '../agents/agent-config.js';
-import { resolveAgentStoreConfig } from '../db/agent-store.js';
+import { AgentStoreConflictError, resolveAgentStoreConfig } from '../db/agent-store.js';
 import {
   AgentCommandError,
   buildUserAgentRequest,
   resolveAgentProviderPolicy,
+  saveNewAgent,
   validateNewAgent,
 } from '../agents/user-agent.js';
 
@@ -63,8 +64,7 @@ test('researcher preset enables web research and report output', () => {
   assert.deepEqual(agent.tools, [AGENT_TOOLS.WEB_SEARCH]);
   assert.equal(agent.responseFormat, 'report');
   assert.equal(agent.language, 'auto');
-  assert.equal(agent.visibility, 'private');
-  assert.equal(agent.sharedGuildId, null);
+  assert.equal(agent.visibility, 'global');
   assert.equal(agent.version, 1);
 });
 
@@ -84,6 +84,21 @@ test('tool overrides can combine web research and file analysis', () => {
   assert.equal(agent.capability, 'custom');
   assert.equal(agent.responseFormat, 'structured');
   assert.equal(agent.language, 'en');
+});
+
+test('creating an agent reports when its global name is already taken', async () => {
+  const profile = makeAgent();
+
+  await assert.rejects(
+    saveNewAgent(profile, async () => {
+      throw new AgentStoreConflictError();
+    }),
+    (error) => {
+      assert.ok(error instanceof AgentCommandError);
+      assert.equal(error.userMessage, 'That agent name is already taken. Choose a different name.');
+      return true;
+    },
+  );
 });
 
 test('an explicit false override removes a preset tool', () => {

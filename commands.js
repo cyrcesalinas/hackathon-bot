@@ -146,7 +146,7 @@ const AGENT_LANGUAGE_CHOICES = Object.entries(AGENT_LANGUAGES)
 
 const AGENT_COMMAND = {
   name: 'agent',
-  description: 'Create, share, manage, and run learning agents',
+  description: 'Create, browse, manage, and run learning agents',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
@@ -161,14 +161,12 @@ const AGENT_COMMAND = {
         { name: 'Delete agent', value: 'delete' },
         { name: 'Edit agent', value: 'edit' },
         { name: 'List saved agents', value: 'list' },
-        { name: 'Browse shared agents', value: 'shared' },
-        { name: 'Share an agent with this server', value: 'share' },
-        { name: 'Make an agent private', value: 'unshare' },
+        { name: 'Browse all agents', value: 'browse' },
         { name: 'Run an agent', value: 'run' },
         { name: 'Test an agent', value: 'test' },
       ],
     },
-    { type: 3, name: 'name', description: 'Agent name (your agent, or a shared agent when running)', required: false, max_length: 32 },
+    { type: 3, name: 'name', description: 'Globally unique agent name', required: false, max_length: 32 },
     { type: 3, name: 'goal', description: 'What should this agent help you learn or build? (create or edit)', required: false, max_length: 1000 },
     { type: 3, name: 'style', description: 'How should it explain or respond? (create or edit)', required: false, max_length: 300 },
     {
