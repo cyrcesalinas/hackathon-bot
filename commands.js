@@ -72,66 +72,34 @@ const RESEARCH_COMMAND = {
 
 const STUDY_COMMAND = {
   name: 'study',
-  description: 'Ask study questions, create guides, and take practice exams',
+  description: 'Create study guides and take practice exams',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
   options: [
     {
-      type: 1,
-      name: 'guide',
-      description: 'Create a study guide from text, a file, or both',
-      options: [
-        {
-          type: 3,
-          name: 'input',
-          description: 'Study topic or instructions for the guide',
-          required: false,
-          max_length: 1500,
-        },
-        {
-          type: 11,
-          name: 'file',
-          description: 'Study file (PDF, TXT, Markdown, CSV, or JSON; max 8 MB)',
-          required: false,
-          file_types: ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'],
-        },
+      type: 3,
+      name: 'action',
+      description: 'Choose what to do with your study material',
+      required: true,
+      choices: [
+        { name: 'Guide: Create a study guide', value: 'guide' },
+        { name: 'Exam: Practice with a five-question quiz', value: 'exam' },
       ],
     },
     {
-      type: 1,
-      name: 'question',
-      description: 'Get a step-by-step explanation for a question',
-      options: [
-        {
-          type: 3,
-          name: 'input',
-          description: 'The study question you want answered',
-          required: true,
-          max_length: 1500,
-        },
-      ],
+      type: 3,
+      name: 'input',
+      description: 'Topic or instructions for this activity (optional if you attach a file)',
+      required: false,
+      max_length: 1500,
     },
     {
-      type: 1,
-      name: 'exam',
-      description: 'Take a five-question practice exam from text, a file, or both',
-      options: [
-        {
-          type: 3,
-          name: 'input',
-          description: 'Exam topic or instructions',
-          required: false,
-          max_length: 1500,
-        },
-        {
-          type: 11,
-          name: 'file',
-          description: 'Study file (PDF, TXT, Markdown, CSV, or JSON; max 8 MB)',
-          required: false,
-          file_types: ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'],
-        },
-      ],
+      type: 11,
+      name: 'file',
+      description: 'Study file for Guide or Exam (PDF, TXT, Markdown, CSV, or JSON; max 8 MB)',
+      required: false,
+      file_types: ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'],
     },
   ],
 };

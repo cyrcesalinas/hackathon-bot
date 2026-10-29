@@ -129,12 +129,11 @@ The `Discover schema tables and views for the approved catalog` action under `/d
 
 The runtime catalog permits lists, counts, filtering, sorting, grouping, sums, and averages where compatible with the Oracle column type. Responses remain limited to 25 rows, queries use bind variables, and only `SELECT` statements pass the database execution guard. Automatic approval deliberately does not distinguish sensitive application data from other supported columns.
 
-Use `/study guide` to create a guide, `/study question` to ask a question, or `/study exam` to start an interactive exam. Guide and Exam accept `input`, `file`, or both; at least one is required. Question accepts only `input`, which is required. Exams always contain exactly five questions. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB.
+Select `/study`, then choose **Guide** or **Exam** in the `action` option. Both activities accept `input`, `file`, or both; at least one is required. Exams always contain exactly five questions. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB.
 
 | Activity | What to provide | Example |
 | --- | --- | --- |
 | Guide: Create a study guide | A topic in input, a file, or both; at least one is required | input: SQL joins for beginners, with examples |
-| Question: Get a step-by-step explanation | Your question in input (required text; file is rejected) | input: How does photosynthesis work? |
 | Exam: Practice with an interactive quiz | A topic in input, a file, or both; exactly five questions | input: Cell biology, or file: class-notes.pdf |
 
 An exam presents one multiple-choice question at a time with answer buttons, explains each answer, shows a final score, and lets the user review missed questions. Quiz state is private and held in memory for 30 minutes; it is lost if the bot restarts, and scores are not saved. A guide uses OpenRouter web search for source links and returns the full AI answer as a downloadable Markdown file. The bot downloads study files only to process that request and does not keep them for later requests; attach them again when requesting a guide or exam. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.

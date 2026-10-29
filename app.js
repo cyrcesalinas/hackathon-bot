@@ -375,7 +375,7 @@ function handleStudyRequest(res, req, studyRequest) {
       }
       : undefined;
 
-  const activityName = studyRequest.name === 'ask' ? 'question' : studyRequest.name;
+  const activityName = studyRequest.name;
   return deferOpenRouterCommand(
     res,
     req,
