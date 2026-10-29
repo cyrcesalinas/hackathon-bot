@@ -67,9 +67,9 @@ OPENROUTER_STUDY_MODEL=provider/instruct-model
 
 The bot uses `OPENROUTER_MODEL` for `/ask` and `/research`. `/study` uses `OPENROUTER_STUDY_MODEL` when set and otherwise falls back to `OPENROUTER_MODEL`; choosing an instruction-following model can avoid reasoning-heavy models spending the output budget before producing study notes. If a model exhausts the output limit without producing visible text, the bot retries that request once with reasoning disabled. `/research` additionally enables OpenRouter's `openrouter:web_search` tool and asks for direct source links. Each invocation is a separate request; the bot does not retain conversation history.
 
-`/agent` offers Create, Delete, Edit, List, Browse shared, Share, Make private, Run, and Test as selectable actions. Create builds a private agent from a general-assistant, tutor, researcher, study-coach, or custom preset. A student can override the preset's style, independently enable web research and study-file analysis, choose an output format, and select English, Spanish, or automatic language matching. The bot shows the complete configuration and saves it only after confirmation. Test privately exercises a saved agent, and edits increment the displayed configuration version.
+`/agent` offers Create, Delete, Edit, List, Run, and Test as selectable actions. **List agents** displays two sections: agents created by the current user and agents created by everyone else. Create builds an agent from a general-assistant, tutor, researcher, study-coach, or custom preset. A student can override the preset's style, independently enable web research and study-file analysis, choose an output format, and select English, Spanish, or automatic language matching. The bot shows the complete configuration and saves it only after confirmation. Test privately exercises an agent owned by the caller, and edits increment the displayed configuration version.
 
-Agents remain private until their creator chooses **Share an agent with this server**. A shared agent can be browsed and run by any member of that Discord server, but only its creator can edit, delete, test, share, or make it private again. Sharing is scoped to one server at a time; sharing the same agent from another server moves its shared access to that server. **Run an agent** posts the result publicly in the channel so the invocation and answer remain part of the channel history. Agent creation, configuration, listing, sharing controls, and Test responses remain private.
+Every saved agent is discoverable and runnable by anyone who uses the bot, including from another server or a DM. Agent names are globally unique and case-insensitive: `Lakshmi` and `lakshmi` are the same name, and creation or renaming fails with a clear message when a name is already taken. Only the creator can edit, delete, or privately test an agent. **Run an agent** posts the result publicly in a server channel so the invocation and answer remain part of the channel history. Agent creation, configuration, listing, and Test responses remain private.
 
 Agents use the bot's configured `OPENROUTER_MODEL`; students cannot provide model IDs, arbitrary tools, code, database access, or secrets. Every agent can use OpenRouter's `openrouter:datetime` tool; web-enabled agents also receive `openrouter:web_search`. File-enabled agents reuse the existing one-run attachment processing, and text files are sent as ordinary text for broad model compatibility. An agent can enable both tools. Short answers appear directly in Discord; long answers show a completion title and attach the complete response as a Markdown file, avoiding temporary pagination state. Runs remain stateless and are limited to 5 requests per user per minute and 30 per minute across this bot process. Agent provider routing defaults to `data_collection: deny`; set `OPENROUTER_AGENT_DATA_COLLECTION=allow` only after reviewing the selected provider's retention and training policies. Agent profiles persist in Oracle; uploaded files and conversations are not saved by the agent feature.
 
@@ -92,7 +92,7 @@ ADB_CATALOG_OWNER=<schema-to-scan>
 
 Use a dedicated ADB account with `SELECT` access only to the intended objects for this bot. The database connection uses a small pool with per-query timeouts. The `Check the bot connection to ADB` action under `/db` performs a restricted `SELECT 1 FROM DUAL` connection check and returns only success or failure.
 
-Agent profiles use a separate database pool. For the simplest development setup, omit `AGENT_STORE_USER` and `AGENT_STORE_PASSWORD`; the bot will reuse `ADB_USER` and `ADB_PASSWORD`. `AGENT_STORE_OWNER` also defaults to the resolved runtime user. That database user must own `AGENT_PROFILES` or have the required table grants.
+Agent profiles use a separate database pool. For the simplest development setup, omit `AGENT_STORE_USER` and `AGENT_STORE_PASSWORD`; the bot will reuse `ADB_USER` and `ADB_PASSWORD`. When `AGENT_STORE_OWNER` is blank, it defaults to `ADB_USER`, even if dedicated agent-store credentials are configured. That database user must own `AGENT_PROFILES`, while a different runtime user needs the required table grants.
 
 For production, a separate runtime user remains recommended so the `/db` account can stay read-only. Configure it with access only to the profile table, using the same wallet and connect string:
 
@@ -102,7 +102,7 @@ AGENT_STORE_PASSWORD=<agent-store-runtime-password>
 AGENT_STORE_OWNER=BOT_AGENT_OWNER
 ```
 
-Connect as `AGENT_STORE_OWNER` and run the unified [`db/agent-store-schema.sql`](db/agent-store-schema.sql). It can be run against an empty owner schema to create the complete table, or against an older `AGENT_PROFILES` table to add the missing agent-builder and server-sharing fields without deleting existing agents. The script is retry-safe, but back up an existing production table before applying any schema change. Then grant only the table operations required by the bot to the runtime account:
+Connect as `AGENT_STORE_OWNER` and run the unified [`db/agent-store-schema.sql`](db/agent-store-schema.sql). It can be run against an empty owner schema to create the complete table, or against an older `AGENT_PROFILES` table to add missing agent-builder fields and enforce globally unique names without deleting existing agents. The script is retry-safe, but back up an existing production table before applying any schema change. Then grant only the table operations required by the bot to the runtime account:
 
 ```sql
 @db/agent-store-schema.sql
@@ -112,7 +112,18 @@ Connect as `AGENT_STORE_OWNER` and run the unified [`db/agent-store-schema.sql`]
 GRANT SELECT, INSERT, UPDATE, DELETE ON AGENT_PROFILES TO BOT_AGENT_APP;
 ```
 
-`AGENT_STORE_OWNER` is the schema that owns `AGENT_PROFILES`; it must be an unquoted Oracle schema name. The bot uses fixed SQL statements and binds student values. `/agent` stays unavailable until the runtime credentials, table, and grants are configured. The bot stores at most 20 profiles per Discord user. New and migrated profiles are private by default; creators can explicitly share one with the current Discord server.
+`AGENT_STORE_OWNER` is the schema that owns `AGENT_PROFILES`; it must be an unquoted Oracle schema name. The bot uses fixed SQL statements and binds student values. `/agent` stays unavailable until the runtime credentials, table, and grants are configured. The bot stores at most 20 profiles per Discord user. Every profile is available for any bot user to browse and run; ownership controls only edit, delete, and Test access.
+
+If the schema upgrader reports duplicate agent names, inspect the collisions before renaming them, then rerun the same script:
+
+```sql
+SELECT UPPER(NAME) AS NORMALIZED_NAME,
+       LISTAGG(OWNER_USER_ID || ':' || NAME, ', ')
+         WITHIN GROUP (ORDER BY OWNER_USER_ID) AS AGENTS
+  FROM AGENT_PROFILES
+ GROUP BY UPPER(NAME)
+HAVING COUNT(*) > 1;
+```
 
 The `Discover schema tables and views for the approved catalog` action under `/db` reads Oracle metadata for every table and view owned by `ADB_CATALOG_OWNER` (default: `ADB_USER`), auto-approves all supported columns in the runtime catalog, and reports the result. It does not read table rows or modify the database. The `Query schema data` action refreshes the automatic catalog when needed, so running the scan first is optional.
 
@@ -136,7 +147,7 @@ The commands for the example app are set up in `commands.js`. All of the command
 npm run register
 ```
 
-In server channels, learning command responses post publicly. **Run an agent** also posts publicly, including when another member runs an agent shared with that server. Agent-builder and management interactions, Agent Test, and database interactions remain ephemeral so private configurations and database results are not exposed to the channel. Commands used in DMs retain their existing visibility behavior; server-shared access does not apply in a DM.
+In server channels, learning command responses post publicly. **Run an agent** also posts publicly, regardless of who created the globally available agent. Agent-builder and management interactions, browsing, Agent Test, and database interactions remain ephemeral so configuration and database results are not exposed to the channel. Commands used in DMs retain their existing response visibility behavior.
 
 Run registration after adding or changing commands, then restart `discord-example.service`. Run the unified agent-store schema script before restarting this version against an empty or older profile schema. The `/db` action selector offers a connection check, an administrator catalog scan, and a query action. `/agent` becomes usable after the profile table and separate runtime credentials are configured.
 

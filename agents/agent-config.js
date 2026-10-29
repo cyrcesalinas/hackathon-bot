@@ -70,8 +70,7 @@ export const AGENT_LANGUAGES = Object.freeze({
 });
 
 export const AGENT_VISIBILITIES = Object.freeze({
-  private: 'Private',
-  guild: 'Shared with this server',
+  global: 'Available to everyone',
 });
 
 export function getAgentPreset(presetId) {

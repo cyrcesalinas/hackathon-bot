@@ -6,6 +6,10 @@
 --   * A legacy agent table is upgraded in place without deleting agent rows.
 --   * An up-to-date schema is left unchanged.
 --
+-- Agent names are globally unique, case-insensitively. If an older table has
+-- duplicate names owned by different users, this script stops before changing
+-- the name indexes. Rename those duplicates and rerun the script.
+--
 -- This script intentionally does not create database users or contain
 -- credentials. Grant the runtime user SELECT, INSERT, UPDATE, and DELETE on
 -- AGENT_PROFILES after setup when the runtime user differs from the owner.
@@ -79,8 +83,6 @@ BEGIN
         TOOLS_JSON VARCHAR2(500 CHAR) DEFAULT '[]' NOT NULL,
         RESPONSE_FORMAT VARCHAR2(32 CHAR) DEFAULT 'balanced' NOT NULL,
         LANGUAGE VARCHAR2(8 CHAR) DEFAULT 'auto' NOT NULL,
-        VISIBILITY VARCHAR2(16 CHAR) DEFAULT 'private' NOT NULL,
-        SHARED_GUILD_ID VARCHAR2(32 CHAR),
         VERSION_NO NUMBER(10) DEFAULT 1 NOT NULL,
         CREATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
         UPDATED_AT TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
@@ -94,12 +96,6 @@ BEGIN
           )),
         CONSTRAINT AGENT_PROFILES_LANGUAGE_CK
           CHECK (LANGUAGE IN ('auto', 'en', 'es')),
-        CONSTRAINT AGENT_PROFILES_VISIBILITY_CK
-          CHECK (VISIBILITY IN ('private', 'guild')),
-        CONSTRAINT AGENT_PROFILES_SHARING_CK CHECK (
-          (VISIBILITY = 'private' AND SHARED_GUILD_ID IS NULL) OR
-          (VISIBILITY = 'guild' AND SHARED_GUILD_ID IS NOT NULL)
-        ),
         CONSTRAINT AGENT_PROFILES_VERSION_CK CHECK (VERSION_NO >= 1)
       )
     ~';
@@ -178,22 +174,6 @@ BEGIN
         'ALTER TABLE AGENT_PROFILES DROP CONSTRAINT AGENT_PROFILES_CAPABILITY_CK';
     END IF;
 
-    IF NOT column_exists('AGENT_PROFILES', 'VISIBILITY') THEN
-      EXECUTE IMMEDIATE q'~
-        ALTER TABLE AGENT_PROFILES ADD (
-          VISIBILITY VARCHAR2(16 CHAR) DEFAULT 'private' NOT NULL
-        )
-      ~';
-    END IF;
-
-    IF NOT column_exists('AGENT_PROFILES', 'SHARED_GUILD_ID') THEN
-      EXECUTE IMMEDIATE q'~
-        ALTER TABLE AGENT_PROFILES ADD (
-          SHARED_GUILD_ID VARCHAR2(32 CHAR)
-        )
-      ~';
-    END IF;
-
     IF NOT constraint_exists('AGENT_PROFILES_CAPABILITY_CK') THEN
       EXECUTE IMMEDIATE q'~
         ALTER TABLE AGENT_PROFILES ADD CONSTRAINT AGENT_PROFILES_CAPABILITY_CK
@@ -224,22 +204,6 @@ BEGIN
       ~';
     END IF;
 
-    IF NOT constraint_exists('AGENT_PROFILES_VISIBILITY_CK') THEN
-      EXECUTE IMMEDIATE q'~
-        ALTER TABLE AGENT_PROFILES ADD CONSTRAINT AGENT_PROFILES_VISIBILITY_CK
-          CHECK (VISIBILITY IN ('private', 'guild'))
-      ~';
-    END IF;
-
-    IF NOT constraint_exists('AGENT_PROFILES_SHARING_CK') THEN
-      EXECUTE IMMEDIATE q'~
-        ALTER TABLE AGENT_PROFILES ADD CONSTRAINT AGENT_PROFILES_SHARING_CK CHECK (
-          (VISIBILITY = 'private' AND SHARED_GUILD_ID IS NULL) OR
-          (VISIBILITY = 'guild' AND SHARED_GUILD_ID IS NOT NULL)
-        )
-      ~';
-    END IF;
-
     IF NOT constraint_exists('AGENT_PROFILES_VERSION_CK') THEN
       EXECUTE IMMEDIATE q'~
         ALTER TABLE AGENT_PROFILES ADD CONSTRAINT AGENT_PROFILES_VERSION_CK
@@ -248,24 +212,41 @@ BEGIN
     END IF;
   END IF;
 
-  IF NOT index_exists('AGENT_PROFILES_OWNER_NAME_UQ') THEN
+  -- Keep this query dynamic so a fresh schema can compile this block before
+  -- AGENT_PROFILES is created earlier in the same block.
+  EXECUTE IMMEDIATE q'~
+    SELECT COUNT(*)
+      FROM (
+        SELECT UPPER(NAME)
+          FROM AGENT_PROFILES
+         GROUP BY UPPER(NAME)
+        HAVING COUNT(*) > 1
+      )
+  ~' INTO v_count;
+
+  IF v_count > 0 THEN
+    RAISE_APPLICATION_ERROR(
+      -20001,
+      'Duplicate agent names exist. Agent names must be globally unique; rename duplicates and rerun this script.'
+    );
+  END IF;
+
+  IF NOT index_exists('AGENT_PROFILES_NAME_UQ') THEN
     EXECUTE IMMEDIATE q'~
-      CREATE UNIQUE INDEX AGENT_PROFILES_OWNER_NAME_UQ
-        ON AGENT_PROFILES (OWNER_USER_ID, UPPER(NAME))
+      CREATE UNIQUE INDEX AGENT_PROFILES_NAME_UQ
+        ON AGENT_PROFILES (UPPER(NAME))
     ~';
   END IF;
 
-  IF NOT index_exists('AGENT_PROFILES_GUILD_NAME_UQ') THEN
-    EXECUTE IMMEDIATE q'~
-      CREATE UNIQUE INDEX AGENT_PROFILES_GUILD_NAME_UQ
-        ON AGENT_PROFILES (
-          CASE WHEN VISIBILITY = 'guild' THEN SHARED_GUILD_ID END,
-          CASE WHEN VISIBILITY = 'guild' THEN UPPER(NAME) END
-        )
-    ~';
+  IF index_exists('AGENT_PROFILES_OWNER_NAME_UQ') THEN
+    EXECUTE IMMEDIATE 'DROP INDEX AGENT_PROFILES_OWNER_NAME_UQ';
   END IF;
 
-  DBMS_OUTPUT.PUT_LINE('Agent store schema is ready.');
+  IF index_exists('AGENT_PROFILES_GUILD_NAME_UQ') THEN
+    EXECUTE IMMEDIATE 'DROP INDEX AGENT_PROFILES_GUILD_NAME_UQ';
+  END IF;
+
+  DBMS_OUTPUT.PUT_LINE('Agent store schema is ready in ' || USER || '.');
 END;
 /
 
