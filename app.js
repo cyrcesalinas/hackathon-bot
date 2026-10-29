@@ -56,6 +56,7 @@ import {
 import { AdbCatalogScanError, scanAdbCatalog } from './db/catalog-scan.js';
 import { closeAgentStorePool, isAgentStoreConfigured } from './db/agent-store.js';
 import { checkAdbConnection, closeAdbPool, isAdbConfigured } from './db/connection.js';
+import { prepareDiscordResponse } from './discord-response.js';
 
 // Create an express app
 const app = express();
@@ -74,10 +75,6 @@ const AGENT_RUNS_PER_USER_PER_MINUTE = 5;
 const AGENT_RUNS_GLOBAL_PER_MINUTE = 30;
 const AGENT_DRAFT_TTL_MS = 10 * 60_000;
 const AGENT_DRAFT_LIMIT = 200;
-const LONG_RESPONSE_TTL_MS = 15 * 60_000;
-const LONG_RESPONSE_LIMIT = 200;
-const LONG_RESPONSE_PAGE_SIZE = 1950;
-const pendingLongResponses = new Map();
 const STUDY_QUIZ_TTL_MS = 30 * 60_000;
 const STUDY_QUIZ_LIMIT = 100;
 const pendingStudyQuizzes = new Map();
@@ -98,7 +95,7 @@ async function updateInteractionResponse(applicationId, interactionToken, conten
       attachments: [{
         id: 0,
         filename: attachment.filename,
-        description: 'Full study guide in Markdown format',
+        description: attachment.description || 'Response in Markdown format',
       }],
     }));
     formData.set(
@@ -133,37 +130,6 @@ function limitDiscordMessage(content) {
     : content;
 }
 
-function splitLongResponse(content) {
-  const remaining = Array.from(content);
-  const pages = [];
-
-  while (remaining.length > LONG_RESPONSE_PAGE_SIZE) {
-    let splitAt = LONG_RESPONSE_PAGE_SIZE;
-    const earliestPreferredBreak = LONG_RESPONSE_PAGE_SIZE - 100;
-    for (let index = LONG_RESPONSE_PAGE_SIZE; index >= earliestPreferredBreak; index -= 1) {
-      if (/\s/.test(remaining[index - 1])) {
-        splitAt = index;
-        break;
-      }
-    }
-
-    pages.push(remaining.splice(0, splitAt).join(''));
-  }
-
-  if (remaining.length > 0 || pages.length === 0) pages.push(remaining.join(''));
-  return pages;
-}
-
-function cleanExpiredLongResponses() {
-  const now = Date.now();
-  for (const [responseId, response] of pendingLongResponses) {
-    if (response.expiresAt <= now) pendingLongResponses.delete(responseId);
-  }
-  while (pendingLongResponses.size >= LONG_RESPONSE_LIMIT) {
-    pendingLongResponses.delete(pendingLongResponses.keys().next().value);
-  }
-}
-
 function cleanExpiredStudyQuizzes() {
   const now = Date.now();
   for (const [quizId, quiz] of pendingStudyQuizzes) {
@@ -174,62 +140,14 @@ function cleanExpiredStudyQuizzes() {
   }
 }
 
-function formatLongResponsePage(response, pageIndex) {
-  const page = response.pages[pageIndex];
-  return response.pages.length > 1
-    ? `${page}\n\n(Part ${pageIndex + 1} of ${response.pages.length})`
-    : page;
-}
-
-function buildLongResponseComponents(responseId, pageIndex, pageCount) {
-  const buttons = [];
-  if (pageIndex > 0) {
-    buttons.push({
-      type: MessageComponentTypes.BUTTON,
-      custom_id: `answer_page:${responseId}:${pageIndex - 1}`,
-      label: 'Previous part',
-      style: ButtonStyleTypes.SECONDARY,
-    });
-  }
-  if (pageIndex < pageCount - 1) {
-    buttons.push({
-      type: MessageComponentTypes.BUTTON,
-      custom_id: `answer_page:${responseId}:${pageIndex + 1}`,
-      label: pageIndex === 0 ? 'Click to see the rest' : 'Next part',
-      style: ButtonStyleTypes.PRIMARY,
-    });
-  }
-  return [{ type: MessageComponentTypes.ACTION_ROW, components: buttons }];
-}
-
-function handleLongResponseButton(res, req, componentId) {
+function handleLongResponseButton(res, _req, componentId) {
   const match = /^answer_page:([0-9a-f-]{36}):(\d+)$/.exec(componentId);
   if (!match) return res.status(400).json({ error: 'invalid long response button' });
-
-  const [, responseId, pageValue] = match;
-  const pageIndex = Number(pageValue);
-  const response = pendingLongResponses.get(responseId);
-  if (!response || response.expiresAt <= Date.now() || pageIndex >= response.pages.length) {
-    pendingLongResponses.delete(responseId);
-    return res.send({
-      type: InteractionResponseType.UPDATE_MESSAGE,
-      data: {
-        content: 'This response is no longer available. Run the command again.',
-        components: [],
-      },
-    });
-  }
-
-  if (response.ownerUserId !== getDiscordUserId(req)) {
-    return res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
-  }
-
   return res.send({
-    type: InteractionResponseType.UPDATE_MESSAGE,
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
-      content: formatLongResponsePage(response, pageIndex),
-      allowed_mentions: { parse: [] },
-      components: buildLongResponseComponents(responseId, pageIndex, response.pages.length),
+      flags: InteractionResponseFlags.EPHEMERAL,
+      content: 'This older paginated response is no longer available. The visible message was left unchanged.',
     },
   });
 }
@@ -328,7 +246,6 @@ async function answerInteraction(
   let content;
   let components;
   let attachment;
-  let storedResponseId;
   let storedStudyQuizId;
   try {
     const request = await requestFactory();
@@ -343,20 +260,10 @@ async function answerInteraction(
       attachment = formattedResponse.attachment;
       storedStudyQuizId = formattedResponse.studyQuizId;
     } else {
-      const pages = splitLongResponse(answer);
-      if (pages.length > 1) {
-        cleanExpiredLongResponses();
-        storedResponseId = randomUUID();
-        pendingLongResponses.set(storedResponseId, {
-          ownerUserId,
-          pages,
-          expiresAt: Date.now() + LONG_RESPONSE_TTL_MS,
-        });
-        content = formatLongResponsePage({ pages }, 0);
-        components = buildLongResponseComponents(storedResponseId, 0, pages.length);
-      } else {
-        content = pages[0];
-      }
+      const preparedResponse = prepareDiscordResponse(answer, request.responseDelivery);
+      content = preparedResponse.content;
+      components = preparedResponse.components;
+      attachment = preparedResponse.attachment;
     }
   } catch (error) {
     if (
@@ -374,7 +281,6 @@ async function answerInteraction(
   try {
     await updateInteractionResponse(applicationId, interactionToken, content, components, attachment);
   } catch (error) {
-    if (storedResponseId) pendingLongResponses.delete(storedResponseId);
     if (storedStudyQuizId) pendingStudyQuizzes.delete(storedStudyQuizId);
     console.error('Could not update the Discord interaction:', error.message);
   }
@@ -595,7 +501,11 @@ function handleStudyRequest(res, req, studyRequest) {
       const filename = getStudyGuideFilename(studyRequest);
       return {
         content: `Your complete study guide is attached as \`${filename}\`.`,
-        attachment: { filename, content: answer },
+        attachment: {
+          filename,
+          description: 'Full study guide in Markdown format',
+          content: answer,
+        },
       };
     }
     : studyRequest.name === 'exam'
@@ -919,7 +829,14 @@ function handleAgentCommand(res, req) {
         const agent = isTest
           ? await requireOwnedAgent(userId, name.trim())
           : await requireRunnableAgent(userId, guildId, name.trim());
-        return buildUserAgentRequest(agent, task, attachmentId, req.body.data.resolved?.attachments);
+        return {
+          ...(await buildUserAgentRequest(agent, task, attachmentId, req.body.data.resolved?.attachments)),
+          responseDelivery: {
+            title: `${agent.name} completed your request`,
+            filename: `${agent.name}-response.md`,
+            description: `Complete response from ${agent.name} in Markdown format`,
+          },
+        };
       },
       isTest ? '/agent test' : '/agent run',
       isTest
