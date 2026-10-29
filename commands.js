@@ -10,7 +10,7 @@ import {
 // Ask an LLM a question using OpenRouter
 const ASK_COMMAND = {
   name: 'ask',
-  description: 'Ask Lian for a clear, step-by-step explanation',
+  description: 'Ask for a clear, step-by-step explanation',
   options: [
     {
       type: 3,
@@ -72,44 +72,66 @@ const RESEARCH_COMMAND = {
 
 const STUDY_COMMAND = {
   name: 'study',
-  description: 'Learn with questions, study guides, notes, and practice exams',
+  description: 'Ask study questions, create guides, and take practice exams',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
   options: [
     {
-      type: 3,
-      name: 'action',
-      description: 'Choose what to do with your study material',
-      required: true,
-      choices: [
-        { name: 'Guide: Create a study guide', value: 'guide' },
-        { name: 'Question: Get a step-by-step explanation', value: 'question' },
-        { name: 'Exam: Practice with an interactive quiz', value: 'exam' },
-        { name: 'Upload: Analyze a study file and create notes', value: 'upload' },
+      type: 1,
+      name: 'guide',
+      description: 'Create a study guide from text, a file, or both',
+      options: [
+        {
+          type: 3,
+          name: 'input',
+          description: 'Study topic or instructions for the guide',
+          required: false,
+          max_length: 1500,
+        },
+        {
+          type: 11,
+          name: 'file',
+          description: 'Study file (PDF, TXT, Markdown, CSV, or JSON; max 8 MB)',
+          required: false,
+          file_types: ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'],
+        },
       ],
     },
     {
-      type: 3,
-      name: 'input',
-      description: 'Topic for Guide/Exam, or your question for Question. Leave empty for Upload.',
-      required: false,
-      max_length: 1500,
+      type: 1,
+      name: 'question',
+      description: 'Get a step-by-step explanation for a question',
+      options: [
+        {
+          type: 3,
+          name: 'input',
+          description: 'The study question you want answered',
+          required: true,
+          max_length: 1500,
+        },
+      ],
     },
     {
-      type: 11,
-      name: 'file',
-      description: 'Study file for Guide/Exam/Upload. Required for Upload; max 8 MB.',
-      required: false,
-      file_types: ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'],
-    },
-    {
-      type: 4,
-      name: 'questions',
-      description: 'Exam only: number of quiz questions (3–10; default 5)',
-      required: false,
-      min_value: 3,
-      max_value: 10,
+      type: 1,
+      name: 'exam',
+      description: 'Take a five-question practice exam from text, a file, or both',
+      options: [
+        {
+          type: 3,
+          name: 'input',
+          description: 'Exam topic or instructions',
+          required: false,
+          max_length: 1500,
+        },
+        {
+          type: 11,
+          name: 'file',
+          description: 'Study file (PDF, TXT, Markdown, CSV, or JSON; max 8 MB)',
+          required: false,
+          file_types: ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'],
+        },
+      ],
     },
   ],
 };

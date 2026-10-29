@@ -20,17 +20,15 @@ import {
   withOpenRouterDateTimeTool,
 } from './openrouter.js';
 import {
+  getMissedQuestionIndexesForReview,
+  parseStudyQuiz,
   buildStudyOpenRouterRequest,
   getStudyGuideFilename,
   getStudyCommandRequest,
-  StudyFileError,
-} from './study.js';
-import {
-  getMissedQuestionIndexesForReview,
-  parseStudyQuiz,
   renderStudyQuiz,
+  StudyFileError,
   StudyQuizError,
-} from './study-quiz.js';
+} from './study.js';
 import { answerAdbQuestion } from './agents/db-query.js';
 import {
   AgentCommandError,
@@ -321,159 +319,6 @@ function getOptionValue(options, name) {
   return options?.find((option) => option.name === name)?.value;
 }
 
-const STUDY_ACTIVITIES = new Set(['guide', 'question', 'exam', 'upload']);
-const STUDY_FILE_TYPES = ['.pdf', '.txt', '.md', '.markdown', '.csv', '.json'];
-
-function buildStudyMenuResponse() {
-  return {
-    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: {
-      flags: InteractionResponseFlags.EPHEMERAL,
-      content: [
-        'Choose a study activity. Its form will ask for the following:',
-        '**Guide:** Create a study guide from a topic written as text, a file, or both.',
-        '**Question:** Write the question you want explained as text.',
-        '**Exam:** Practice with an interactive quiz based on a topic, a file, or both.',
-        '**Upload:** Attach a file to turn it into study notes (required; max 8 MB).',
-      ].join('\n'),
-      components: [{
-        type: MessageComponentTypes.ACTION_ROW,
-        components: [
-          ['guide', 'Create a guide'],
-          ['question', 'Ask a question'],
-          ['exam', 'Start an exam'],
-          ['upload', 'Create notes from a file'],
-        ].map(([activity, label]) => ({
-          type: MessageComponentTypes.BUTTON,
-          style: ButtonStyleTypes.SECONDARY,
-          custom_id: `study_action:${activity}`,
-          label,
-        })),
-      }],
-    },
-  };
-}
-
-function studyTextInput(label, placeholder, { required = false, style = 1, maxLength = 500, description } = {}) {
-  return {
-    type: MessageComponentTypes.LABEL,
-    label,
-    ...(description ? { description } : {}),
-    component: {
-      type: MessageComponentTypes.INPUT_TEXT,
-      custom_id: 'input',
-      style,
-      required,
-      max_length: maxLength,
-      placeholder,
-    },
-  };
-}
-
-function studyFileInput(required) {
-  return {
-    type: MessageComponentTypes.LABEL,
-    label: required ? 'File: study material (required)' : 'File: study material',
-    description: required
-      ? 'Upload one PDF, TXT, Markdown, CSV, or JSON file; max 8 MB.'
-      : 'Required if Input is blank. PDF, TXT, Markdown, CSV, or JSON; max 8 MB.',
-    component: {
-      type: 19,
-      custom_id: 'file',
-      required,
-      min_values: required ? 1 : 0,
-      max_values: 1,
-      file_types: STUDY_FILE_TYPES,
-    },
-  };
-}
-
-function buildStudyModal(activity) {
-  if (!STUDY_ACTIVITIES.has(activity)) return undefined;
-
-  let components;
-  if (activity === 'question') {
-    components = [studyTextInput('Input: your question (required)', 'e.g. How does photosynthesis turn light into chemical energy?', {
-      required: true,
-      style: 2,
-      maxLength: 1500,
-      description: 'Write the question you want explained. This activity accepts text only.',
-    })];
-  } else if (activity === 'upload') {
-    components = [studyFileInput(true)];
-  } else if (activity === 'guide') {
-    components = [
-      studyTextInput('Input: study topic', 'e.g. SQL joins for beginners, with examples', {
-        description: 'Write a topic, attach a file below, or provide both. At least one is required.',
-      }),
-      studyFileInput(false),
-    ];
-  } else {
-    components = [
-      studyTextInput('Input: exam topic', 'e.g. Cell biology: organelles and their functions', {
-        description: 'Write a topic, attach a file below, or provide both. At least one is required.',
-      }),
-      {
-        type: MessageComponentTypes.LABEL,
-        label: 'Number of quiz questions',
-        description: 'Choose 3–10 questions (default: 5). Answer with buttons, then review mistakes.',
-        component: {
-          type: MessageComponentTypes.STRING_SELECT,
-          custom_id: 'questions',
-          placeholder: 'Choose 3–10 questions',
-          min_values: 1,
-          max_values: 1,
-          required: true,
-          options: Array.from({ length: 8 }, (_, index) => index + 3).map((count) => ({
-            label: String(count),
-            value: String(count),
-            default: count === 5,
-          })),
-        },
-      },
-      studyFileInput(false),
-    ];
-  }
-
-  return {
-    type: InteractionResponseType.MODAL,
-    data: {
-      custom_id: `study_modal:${activity}`,
-      title: {
-        guide: 'Create a study guide',
-        question: 'Ask a study question',
-        exam: 'Start a practice exam',
-        upload: 'Create notes from a file',
-      }[activity],
-      components,
-    },
-  };
-}
-
-function getStudyModalRequest(modalData) {
-  const match = /^study_modal:(guide|question|exam|upload)$/.exec(modalData?.custom_id ?? '');
-  if (!match) return { error: "I don't recognize that study activity." };
-
-  const [, activity] = match;
-  const options = [];
-  for (const label of modalData.components ?? []) {
-    const component = label?.component ?? label;
-    if (!component?.custom_id) continue;
-    if (component.custom_id === 'input' && typeof component.value === 'string') {
-      options.push({ type: 3, name: 'input', value: component.value });
-    } else if (component.custom_id === 'questions' && Array.isArray(component.values)) {
-      options.push({ type: 4, name: 'questions', value: Number(component.values[0]) });
-    } else if (component.custom_id === 'file' && Array.isArray(component.values)) {
-      options.push({ type: 11, name: 'file', value: component.values[0] });
-    }
-  }
-
-  return getStudyCommandRequest(
-    [{ type: 1, name: activity, options }],
-    modalData.resolved?.attachments,
-  );
-}
-
 function handleStudyRequest(res, req, studyRequest) {
   if (studyRequest.error) {
     return res.send({
@@ -510,7 +355,13 @@ function handleStudyRequest(res, req, studyRequest) {
     }
     : studyRequest.name === 'exam'
       ? (answer, _request, ownerUserId) => {
-        const parsedQuiz = parseStudyQuiz(answer, studyRequest.questionCount);
+        let parsedQuiz;
+        try {
+          parsedQuiz = parseStudyQuiz(answer, studyRequest.questionCount);
+        } catch (error) {
+          if (!(error instanceof StudyQuizError)) throw error;
+          return { content: limitDiscordMessage(answer) };
+        }
         cleanExpiredStudyQuizzes();
         const quizId = randomUUID();
         const quiz = {
@@ -1104,8 +955,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     (type === InteractionType.APPLICATION_COMMAND && ['agent', 'db', 'study'].includes(data?.name)) ||
     (type === InteractionType.MESSAGE_COMPONENT && (
       data?.custom_id?.startsWith('agent_save:') ||
-      data?.custom_id?.startsWith('agent_cancel:') ||
-      data?.custom_id?.startsWith('study_action:')
+      data?.custom_id?.startsWith('agent_cancel:')
     ));
   if (
     !isPrivateInteraction &&
@@ -1322,12 +1172,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
 
 
     if (name === 'study') {
-      const activity = getOptionValue(data.options, 'action');
-      if (activity !== undefined) {
-        return handleStudyRequest(res, req, getStudyCommandRequest(data.options, data.resolved?.attachments));
-      }
-
-      return res.send(buildStudyMenuResponse());
+      return handleStudyRequest(res, req, getStudyCommandRequest(data.options, data.resolved?.attachments));
     }
 
     console.error(`unknown command: ${name}`);
@@ -1340,13 +1185,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
    */
   if (type === InteractionType.MESSAGE_COMPONENT) {
     const componentId = data.custom_id;
-
-    if (componentId.startsWith('study_action:')) {
-      const activity = componentId.slice('study_action:'.length);
-      const modal = buildStudyModal(activity);
-      if (modal) return res.send(modal);
-      return res.status(400).json({ error: 'unknown study activity' });
-    }
 
     if (componentId.startsWith('study_quiz:')) {
       return handleStudyQuizButton(res, req, componentId);
@@ -1361,14 +1199,6 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     }
 
     return res.status(400).json({ error: 'unknown component' });
-  }
-
-  if (type === InteractionType.MODAL_SUBMIT) {
-    if (data?.custom_id?.startsWith('study_modal:')) {
-      return handleStudyRequest(res, req, getStudyModalRequest(data));
-    }
-
-    return res.status(400).json({ error: 'unknown modal' });
   }
 
   console.error('unknown interaction type', type);
