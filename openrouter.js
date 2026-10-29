@@ -1,6 +1,30 @@
 import 'dotenv/config';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const DATETIME_TOOL_TYPE = 'openrouter:datetime';
+const DATETIME_SYSTEM_INSTRUCTION = 'When the request depends on the current date or time, call the openrouter:datetime tool and use its result. Interpret relative dates in the returned timezone. The datetime tool only verifies the current clock; use web research when external facts need verification.';
+
+function getDateTimeTimezone() {
+  const configuredTimezone = process.env.OPENROUTER_DATETIME_TIMEZONE?.trim() || 'America/New_York';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: configuredTimezone });
+    return configuredTimezone;
+  } catch {
+    console.warn('Invalid OPENROUTER_DATETIME_TIMEZONE; using America/New_York.');
+    return 'America/New_York';
+  }
+}
+
+export function withOpenRouterDateTimeTool(tools) {
+  const requestTools = Array.isArray(tools) ? [...tools] : [];
+  if (requestTools.some((tool) => tool?.type === DATETIME_TOOL_TYPE)) return requestTools;
+
+  requestTools.push({
+    type: DATETIME_TOOL_TYPE,
+    parameters: { timezone: getDateTimeTimezone() },
+  });
+  return requestTools;
+}
 
 export function getOpenRouterModel(purpose = 'default') {
   if (purpose === 'study') {
@@ -66,7 +90,9 @@ export async function getOpenRouterAnswer({
     messages: [
       {
         role: 'system',
-        content: systemPrompt,
+        content: Array.isArray(tools) && tools.some((tool) => tool?.type === DATETIME_TOOL_TYPE)
+          ? `${systemPrompt}\n\n${DATETIME_SYSTEM_INSTRUCTION}`
+          : systemPrompt,
       },
       { role: 'user', content: userContent },
     ],

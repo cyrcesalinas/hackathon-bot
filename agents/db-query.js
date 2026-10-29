@@ -1,4 +1,8 @@
-import { getOpenRouterAnswer, isOpenRouterConfigured } from '../openrouter.js';
+import {
+  getOpenRouterAnswer,
+  isOpenRouterConfigured,
+  withOpenRouterDateTimeTool,
+} from '../openrouter.js';
 import { refreshAdbCatalog } from '../db/catalog-scan.js';
 import { isAdbConfigured } from '../db/connection.js';
 import {
@@ -62,6 +66,7 @@ export async function answerAdbQuestion(question) {
         approvedCatalog: getPublicAdbCatalog(),
       }),
       maxTokens: 500,
+      tools: withOpenRouterDateTimeTool(),
       provider: { data_collection: 'deny' },
     });
   } catch (error) {

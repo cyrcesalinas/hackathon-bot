@@ -13,7 +13,12 @@ import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
 import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
 import { getOciSystemPrompt, getOciTopic } from './agents/oci.js';
-import { getOpenRouterAnswer, getOpenRouterModel, isOpenRouterConfigured } from './openrouter.js';
+import {
+  getOpenRouterAnswer,
+  getOpenRouterModel,
+  isOpenRouterConfigured,
+  withOpenRouterDateTimeTool,
+} from './openrouter.js';
 import {
   buildStudyOpenRouterRequest,
   getStudyGuideFilename,
@@ -327,7 +332,10 @@ async function answerInteraction(
   let storedStudyQuizId;
   try {
     const request = await requestFactory();
-    const answer = await getOpenRouterAnswer(request);
+    const answer = await getOpenRouterAnswer({
+      ...request,
+      tools: withOpenRouterDateTimeTool(request.tools),
+    });
     if (responseFormatter) {
       const formattedResponse = responseFormatter(answer, request, ownerUserId);
       content = formattedResponse.content;
