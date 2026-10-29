@@ -67,6 +67,62 @@ function getContentDiagnostics(content) {
   return { contentType: content === null ? 'null' : typeof content };
 }
 
+async function sendOpenRouterRequest(requestBody) {
+  const response = await fetch(OPENROUTER_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(90_000),
+  });
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const errorBody = await response.json();
+      const message = errorBody?.error?.message ?? errorBody?.message;
+      if (typeof message === 'string') detail = message.slice(0, 300);
+    } catch {
+      // Preserve the status even when the provider returns a non-JSON error.
+    }
+    throw new Error(
+      `OpenRouter returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`,
+    );
+  }
+
+  return response.json();
+}
+
+function inspectOpenRouterResult(result, requestBody) {
+  const choice = result.choices?.[0];
+  const message = choice?.message;
+  const usage = result.usage ?? {};
+  return {
+    answer: getAnswerText(message?.content),
+    finishReason: choice?.finish_reason ?? null,
+    diagnostics: {
+      generationId: result.id ?? null,
+      requestedModel: requestBody.model,
+      responseModel: result.model ?? null,
+      provider: result.provider ?? null,
+      finishReason: choice?.finish_reason ?? null,
+      maxTokens: requestBody.max_tokens,
+      promptTokens: usage.prompt_tokens ?? null,
+      completionTokens: usage.completion_tokens ?? null,
+      reasoningTokens:
+        usage.completion_tokens_details?.reasoning_tokens ??
+        usage.reasoning_tokens ??
+        null,
+      ...getContentDiagnostics(message?.content),
+      messageFields: message && typeof message === 'object'
+        ? Object.keys(message).slice(0, 12)
+        : [],
+    },
+  };
+}
+
 export async function getOpenRouterAnswer({
   systemPrompt,
   userContent,
@@ -105,57 +161,31 @@ export async function getOpenRouterAnswer({
   if (responseFormat) requestBody.response_format = responseFormat;
   if (reasoning) requestBody.reasoning = reasoning;
 
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-    signal: AbortSignal.timeout(90_000),
-  });
+  const initialResult = await sendOpenRouterRequest(requestBody);
+  const initialInspection = inspectOpenRouterResult(initialResult, requestBody);
+  if (initialInspection.answer) return initialInspection.answer;
 
-  if (!response.ok) {
-    let detail = '';
-    try {
-      const errorBody = await response.json();
-      const message = errorBody?.error?.message ?? errorBody?.message;
-      if (typeof message === 'string') detail = message.slice(0, 300);
-    } catch {
-      // Preserve the status even when the provider returns a non-JSON error.
-    }
-    throw new Error(
-      `OpenRouter returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`,
+  if (initialInspection.finishReason === 'length') {
+    console.warn(
+      'OpenRouter exhausted the output limit without text; retrying once with reasoning disabled:',
+      JSON.stringify(initialInspection.diagnostics),
     );
-  }
-
-  const result = await response.json();
-  const choice = result.choices?.[0];
-  const message = choice?.message;
-  const answer = getAnswerText(message?.content);
-  if (!answer) {
-    const usage = result.usage ?? {};
-    const diagnostics = {
-      generationId: result.id ?? null,
-      requestedModel: selectedModel,
-      responseModel: result.model ?? null,
-      provider: result.provider ?? null,
-      finishReason: choice?.finish_reason ?? null,
-      maxTokens: requestBody.max_tokens,
-      promptTokens: usage.prompt_tokens ?? null,
-      completionTokens: usage.completion_tokens ?? null,
-      reasoningTokens:
-        usage.completion_tokens_details?.reasoning_tokens ??
-        usage.reasoning_tokens ??
-        null,
-      ...getContentDiagnostics(message?.content),
-      messageFields: message && typeof message === 'object'
-        ? Object.keys(message).slice(0, 12)
-        : [],
+    const retryRequestBody = {
+      ...requestBody,
+      reasoning: { enabled: false },
     };
-    console.error('OpenRouter returned no text:', JSON.stringify(diagnostics));
-    throw new Error('OpenRouter returned an empty answer');
+    const retryResult = await sendOpenRouterRequest(retryRequestBody);
+    const retryInspection = inspectOpenRouterResult(retryResult, retryRequestBody);
+    if (retryInspection.answer) return retryInspection.answer;
+
+    console.error('OpenRouter returned no text after retry:', JSON.stringify({
+      ...retryInspection.diagnostics,
+      reasoningDisabled: true,
+      initialGenerationId: initialInspection.diagnostics.generationId,
+    }));
+  } else {
+    console.error('OpenRouter returned no text:', JSON.stringify(initialInspection.diagnostics));
   }
 
-  return answer;
+  throw new Error('OpenRouter returned an empty answer');
 }
