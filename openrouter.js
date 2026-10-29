@@ -3,6 +3,13 @@ import 'dotenv/config';
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DATETIME_TOOL_TYPE = 'openrouter:datetime';
 const DATETIME_SYSTEM_INSTRUCTION = 'When the request depends on the current date or time, call the openrouter:datetime tool and use its result. Interpret relative dates in the returned timezone. The datetime tool only verifies the current clock; use web research when external facts need verification.';
+const MAX_CONTINUATION_REQUESTS = 2;
+const CONTINUATION_INSTRUCTION = [
+  'Continue the response immediately after the assistant text above.',
+  'Do not repeat or summarize earlier content.',
+  'Complete the unfinished response in the same language and Markdown structure.',
+  'Begin directly with the continuation and do not add an introductory sentence.',
+].join(' ');
 
 function getDateTimeTimezone() {
   const configuredTimezone = process.env.OPENROUTER_DATETIME_TIMEZONE?.trim() || 'America/New_York';
@@ -123,6 +130,61 @@ function inspectOpenRouterResult(result, requestBody) {
   };
 }
 
+function discardIncompleteFinalLine(answer) {
+  const lastNewline = answer.lastIndexOf('\n');
+  if (lastNewline < 0) return answer;
+  const finalLine = answer.slice(lastNewline + 1).trimEnd();
+  if (/[.!?:;|>`}\])”’"]$/.test(finalLine)) return answer;
+  const completeLines = answer.slice(0, lastNewline).trimEnd();
+  return completeLines || answer;
+}
+
+async function continueLengthLimitedAnswer(initialAnswer, requestBody, maxContinuations) {
+  const continuationLimit = Math.min(
+    MAX_CONTINUATION_REQUESTS,
+    Math.max(0, Number.isInteger(maxContinuations) ? maxContinuations : 0),
+  );
+  let answer = discardIncompleteFinalLine(initialAnswer);
+  let attempts = 0;
+
+  for (let continuation = 1; continuation <= continuationLimit; continuation += 1) {
+    attempts = continuation;
+    const continuationRequestBody = {
+      ...requestBody,
+      messages: [
+        ...requestBody.messages,
+        { role: 'assistant', content: answer },
+        { role: 'user', content: CONTINUATION_INSTRUCTION },
+      ],
+      reasoning: { enabled: false },
+    };
+    const result = await sendOpenRouterRequest(continuationRequestBody);
+    const inspection = inspectOpenRouterResult(result, continuationRequestBody);
+
+    console.warn('OpenRouter continued a length-limited response:', JSON.stringify({
+      ...inspection.diagnostics,
+      continuation,
+      continuationLimit,
+    }));
+
+    if (!inspection.answer) {
+      if (inspection.finishReason === 'length') continue;
+      console.error('OpenRouter returned no text while continuing a response:', JSON.stringify({
+        ...inspection.diagnostics,
+        continuation,
+      }));
+      break;
+    }
+
+    answer = `${answer}\n${inspection.answer}`;
+    if (inspection.finishReason !== 'length') return answer;
+    answer = discardIncompleteFinalLine(answer);
+  }
+
+  const attemptLabel = attempts === 1 ? 'attempt' : 'attempts';
+  return `${answer}\n\n> ⚠️ This response reached the maximum output length after ${attempts} continuation ${attemptLabel} and may still be incomplete.`;
+}
+
 export async function getOpenRouterAnswer({
   systemPrompt,
   userContent,
@@ -133,6 +195,7 @@ export async function getOpenRouterAnswer({
   provider,
   responseFormat,
   reasoning,
+  maxContinuations = 0,
 }) {
   const selectedModel = typeof model === 'string' && model.trim()
     ? model.trim()
@@ -163,7 +226,16 @@ export async function getOpenRouterAnswer({
 
   const initialResult = await sendOpenRouterRequest(requestBody);
   const initialInspection = inspectOpenRouterResult(initialResult, requestBody);
-  if (initialInspection.answer) return initialInspection.answer;
+  if (initialInspection.answer) {
+    if (initialInspection.finishReason === 'length' && maxContinuations > 0) {
+      return continueLengthLimitedAnswer(
+        initialInspection.answer,
+        requestBody,
+        maxContinuations,
+      );
+    }
+    return initialInspection.answer;
+  }
 
   if (initialInspection.finishReason === 'length') {
     console.warn(
@@ -176,7 +248,16 @@ export async function getOpenRouterAnswer({
     };
     const retryResult = await sendOpenRouterRequest(retryRequestBody);
     const retryInspection = inspectOpenRouterResult(retryResult, retryRequestBody);
-    if (retryInspection.answer) return retryInspection.answer;
+    if (retryInspection.answer) {
+      if (retryInspection.finishReason === 'length' && maxContinuations > 0) {
+        return continueLengthLimitedAnswer(
+          retryInspection.answer,
+          retryRequestBody,
+          maxContinuations,
+        );
+      }
+      return retryInspection.answer;
+    }
 
     console.error('OpenRouter returned no text after retry:', JSON.stringify({
       ...retryInspection.diagnostics,
