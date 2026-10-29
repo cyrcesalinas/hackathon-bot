@@ -37,7 +37,6 @@ import {
   buildUserAgentRequest,
   editAgent,
   listAvailableAgents,
-  listAgents,
   removeAgent,
   requireOwnedAgent,
   requireRunnableAgent,
@@ -590,20 +589,29 @@ function deferAgentOperation(res, req, operation, operationName, failureMessage)
   });
 
   setImmediate(async () => {
-    let content;
+    let response;
     try {
-      content = limitDiscordMessage(await operation());
+      const result = await operation();
+      response = typeof result === 'string'
+        ? { content: limitDiscordMessage(result) }
+        : result;
     } catch (error) {
       if (error?.userMessage) {
-        content = error.userMessage;
+        response = { content: error.userMessage };
       } else {
         console.error(`${operationName} failed:`, error?.code ?? error?.name ?? 'unknown error');
-        content = failureMessage;
+        response = { content: failureMessage };
       }
     }
 
     try {
-      await updateInteractionResponse(req.body.application_id, req.body.token, content);
+      await updateInteractionResponse(
+        req.body.application_id,
+        req.body.token,
+        response.content,
+        response.components,
+        response.attachment,
+      );
     } catch (error) {
       console.error(`Could not update the Discord ${operationName} response:`, error.message);
     }
@@ -721,33 +729,37 @@ function handleAgentCommand(res, req) {
     });
   }
 
-  if (action === 'list') {
-    return deferAgentOperation(
-      res,
-      req,
-      async () => {
-        const agents = await listAgents(userId);
-        if (!agents.length) return 'You have no saved agents yet. Start with /agent and choose Create agent.';
-        return `Your agents (${agents.length}):\n\n${agents.map(formatAgentSummary).join('\n\n')}`;
-      },
-      '/agent list',
-      'I could not load your agents right now. Please try again shortly.',
-    );
-  }
-
-  if (action === 'browse' || action === 'shared') {
+  if (action === 'list' || action === 'browse' || action === 'shared') {
     return deferAgentOperation(
       res,
       req,
       async () => {
         const agents = await listAvailableAgents();
-        if (!agents.length) return 'No agents have been created yet.';
-        return `Available agents (${agents.length}):\n\n${agents
-          .map((agent) => formatAgentSummary(agent, { showOwner: true }))
-          .join('\n\n')}`;
+        if (!agents.length) return 'No agents have been created yet. Start with /agent and choose Create agent.';
+
+        const ownedAgents = agents.filter((agent) => agent.ownerUserId === userId);
+        const otherAgents = agents.filter((agent) => agent.ownerUserId !== userId);
+        const ownedSection = ownedAgents.length
+          ? ownedAgents.map(formatAgentSummary).join('\n\n')
+          : 'You have not created any agents yet.';
+        const otherSection = otherAgents.length
+          ? otherAgents.map((agent) => formatAgentSummary(agent, { showOwner: true })).join('\n\n')
+          : 'No agents created by other users yet.';
+
+        const directory = [
+          `## Your agents (${ownedAgents.length})`,
+          ownedSection,
+          `## Agents created by others (${otherAgents.length})`,
+          otherSection,
+        ].join('\n\n');
+        return prepareDiscordResponse(directory, {
+          title: 'Agent directory',
+          filename: 'agent-directory.md',
+          description: 'Agents grouped by ownership in Markdown format',
+        });
       },
-      '/agent browse',
-      'I could not load the available agents right now. Please try again shortly.',
+      '/agent list',
+      'I could not load the agents right now. Please try again shortly.',
     );
   }
 
@@ -874,7 +886,7 @@ function handleAgentCommand(res, req) {
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
       flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose an action under /agent: Create, Delete, Edit, List, Browse all, Run, or Test an agent.',
+      content: 'Choose an action under /agent: Create, Delete, Edit, List, Run, or Test an agent.',
     },
   });
 }

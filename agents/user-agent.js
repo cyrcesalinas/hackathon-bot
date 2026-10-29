@@ -5,7 +5,6 @@ import {
   deleteAgent,
   getAgent,
   getRunnableAgent,
-  listAgents,
   listGlobalAgents,
   updateAgent,
 } from '../db/agent-store.js';
@@ -29,7 +28,6 @@ export function resolveAgentProviderPolicy(env = process.env) {
   const dataCollection = env.OPENROUTER_AGENT_DATA_COLLECTION?.trim().toLowerCase();
   return { data_collection: dataCollection === 'allow' ? 'allow' : 'deny' };
 }
-
 export class AgentCommandError extends Error {
   constructor(userMessage) {
     super(userMessage);
@@ -275,5 +273,3 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
     provider,
   };
 }
-
-export { listAgents };

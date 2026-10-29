@@ -130,23 +130,6 @@ function throwStoreError(error) {
   throw error;
 }
 
-export async function listAgents(ownerUserId) {
-  return withConnection(async (connection, table) => {
-    const result = await connection.execute(
-      `SELECT AGENT_ID, OWNER_USER_ID, NAME, GOAL, STYLE, CAPABILITY,
-              PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE,
-              VERSION_NO, CREATED_AT, UPDATED_AT
-         FROM ${table}
-        WHERE OWNER_USER_ID = :ownerUserId
-        ORDER BY CREATED_AT DESC
-        FETCH FIRST ${MAX_AGENTS_PER_USER} ROWS ONLY`,
-      { ownerUserId },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT },
-    );
-    return result.rows.map(mapAgent);
-  });
-}
-
 export async function getAgent(ownerUserId, name) {
   return withConnection((connection, table) => findAgent(connection, table, ownerUserId, name));
 }
@@ -174,8 +157,7 @@ export async function listGlobalAgents() {
               PRESET, TOOLS_JSON, RESPONSE_FORMAT, LANGUAGE,
               VERSION_NO, CREATED_AT, UPDATED_AT
          FROM ${table}
-        ORDER BY UPPER(NAME), CREATED_AT
-        FETCH FIRST 50 ROWS ONLY`,
+        ORDER BY UPPER(NAME), CREATED_AT`,
       {},
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
