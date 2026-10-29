@@ -51,6 +51,8 @@ export async function getOpenRouterAnswer({
   tools,
   plugins,
   provider,
+  responseFormat,
+  reasoning,
 }) {
   const selectedModel = typeof model === 'string' && model.trim()
     ? model.trim()
@@ -74,6 +76,8 @@ export async function getOpenRouterAnswer({
   if (Array.isArray(tools) && tools.length) requestBody.tools = tools;
   if (plugins) requestBody.plugins = plugins;
   if (provider) requestBody.provider = provider;
+  if (responseFormat) requestBody.response_format = responseFormat;
+  if (reasoning) requestBody.reasoning = reasoning;
 
   const response = await fetch(OPENROUTER_API_URL, {
     method: 'POST',
