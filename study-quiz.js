@@ -1,6 +1,7 @@
 import { ButtonStyleTypes, MessageComponentTypes } from 'discord-interactions';
 
 const ANSWER_LETTERS = ['A', 'B', 'C', 'D'];
+const MAX_DISCORD_MESSAGE_LENGTH = 2000;
 
 export class StudyQuizError extends Error {
   constructor(userMessage) {
@@ -9,7 +10,7 @@ export class StudyQuizError extends Error {
   }
 }
 
-function normalizeText(value, maxLength) {
+function normalizeText(value, maxLength = Infinity) {
   if (typeof value !== 'string') return '';
   return value.replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
@@ -74,7 +75,7 @@ export function parseStudyQuiz(answer, expectedQuestionCount) {
     throw new StudyQuizError('I could not format the generated exam as a quiz. Please try again.');
   }
 
-  const title = normalizeText(parsed.title, 100);
+  const title = normalizeText(parsed.title);
   if (!title) {
     throw new StudyQuizError('The generated exam did not include a title. Please try again.');
   }
@@ -83,10 +84,10 @@ export function parseStudyQuiz(answer, expectedQuestionCount) {
   }
 
   const questions = parsed.questions.map((item) => {
-    const question = normalizeText(item?.question, 800);
-    const explanation = normalizeText(item?.explanation, 500);
+    const question = normalizeText(item?.question);
+    const explanation = normalizeText(item?.explanation);
     const choices = Array.isArray(item?.choices)
-      ? item.choices.map((choice) => normalizeText(choice, 68))
+      ? item.choices.map((choice) => normalizeText(choice))
       : [];
 
     if (
@@ -106,6 +107,7 @@ export function parseStudyQuiz(answer, expectedQuestionCount) {
     return { question, choices, correctIndex: item.correctIndex, explanation };
   });
 
+  validateQuizMessageLengths(title, questions);
   return { title, questions };
 }
 
@@ -127,7 +129,7 @@ function answerButton(sessionId, question, questionIndex, choiceIndex, selectedI
   return {
     type: MessageComponentTypes.BUTTON,
     custom_id: `study_quiz:${sessionId}:answer:${questionIndex}:${choiceIndex}`,
-    label: `${ANSWER_LETTERS[choiceIndex]}. ${question.choices[choiceIndex]}`,
+    label: ANSWER_LETTERS[choiceIndex],
     style,
     disabled,
   };
@@ -159,26 +161,30 @@ function getScoreLabel(quiz) {
   return `${score}/${total} (${Math.round((score / total) * 100)}%)`;
 }
 
+function formatChoices(question, selectedIndex = null) {
+  return question.choices.map((choice, index) => {
+    const marker = selectedIndex === null
+      ? ''
+      : index === question.correctIndex
+        ? '✅ '
+        : index === selectedIndex
+          ? '❌ '
+          : '▫️ ';
+    return `${marker}${ANSWER_LETTERS[index]}. ${choice}`;
+  }).join('\n');
+}
+
 function getReviewContent(quiz) {
   const questionIndex = quiz.reviewIndexes[quiz.reviewIndex];
   const question = quiz.questions[questionIndex];
   const selectedIndex = quiz.answers[questionIndex];
-  const choices = question.choices.map((choice, index) => {
-    const marker = index === question.correctIndex
-      ? '✅'
-      : index === selectedIndex
-        ? '❌'
-        : '▫️';
-    return `${marker} ${ANSWER_LETTERS[index]}. ${choice}`;
-  }).join('\n');
-
   return [
     `**Review missed answers · ${quiz.reviewIndex + 1}/${quiz.reviewIndexes.length}**`,
     `Score: ${getScoreLabel(quiz)}`,
     '',
     question.question,
     '',
-    choices,
+    formatChoices(question, selectedIndex),
     '',
     `**Why:** ${question.explanation}`,
   ].join('\n');
@@ -186,11 +192,16 @@ function getReviewContent(quiz) {
 
 export function renderStudyQuiz(quiz) {
   const question = quiz.questions[quiz.questionIndex];
-  const score = getScore(quiz);
 
   if (quiz.status === 'answering') {
     return {
-      content: `**${quiz.title}**\nQuestion ${quiz.questionIndex + 1}/${quiz.questions.length} · Score ${score}/${quiz.questions.length}\n\n${question.question}`,
+      content: [
+        `**${quiz.title}**\nQuestion ${quiz.questionIndex + 1}/${quiz.questions.length}`,
+        '',
+        question.question,
+        '',
+        formatChoices(question),
+      ].join('\n'),
       components: [answerRow(quiz.id, question, quiz.questionIndex)],
     };
   }
@@ -201,12 +212,13 @@ export function renderStudyQuiz(quiz) {
     const nextLabel = quiz.questionIndex === quiz.questions.length - 1 ? 'See results' : 'Next question';
     return {
       content: [
-        `**${quiz.title}** · Question ${quiz.questionIndex + 1}/${quiz.questions.length} · Score ${score}/${quiz.questions.length}`,
+        `**${quiz.title}** · Question ${quiz.questionIndex + 1}/${quiz.questions.length}`,
         '',
         question.question,
         '',
-        `${correct ? '✅ Correct!' : '❌ Not quite.'} Your answer: **${ANSWER_LETTERS[selectedIndex]}. ${question.choices[selectedIndex]}**`,
-        `Correct answer: **${ANSWER_LETTERS[question.correctIndex]}. ${question.choices[question.correctIndex]}**`,
+        formatChoices(question, selectedIndex),
+        '',
+        `${correct ? '✅ Correct!' : '❌ Not quite.'} Your answer: **${ANSWER_LETTERS[selectedIndex]}** · Correct answer: **${ANSWER_LETTERS[question.correctIndex]}**`,
         '',
         `**Why:** ${question.explanation}`,
       ].join('\n'),
@@ -248,6 +260,51 @@ export function renderStudyQuiz(quiz) {
         components: [quizButton(quiz.id, 'review', `Review missed answers (${missedCount})`, ButtonStyleTypes.PRIMARY)],
       }],
   };
+}
+
+function validateQuizMessageLengths(title, questions) {
+  const quizId = '00000000-0000-0000-0000-000000000000';
+  const answers = new Array(questions.length).fill(null);
+
+  for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
+    const question = questions[questionIndex];
+    const incorrectChoice = (question.correctIndex + 1) % question.choices.length;
+    const feedbackAnswers = [...answers];
+    feedbackAnswers[questionIndex] = incorrectChoice;
+    const reviewAnswers = questions.map((item) => (item.correctIndex + 1) % item.choices.length);
+    const scenarios = [
+      {
+        id: quizId,
+        title,
+        questions,
+        answers,
+        questionIndex,
+        status: 'answering',
+      },
+      {
+        id: quizId,
+        title,
+        questions,
+        answers: feedbackAnswers,
+        questionIndex,
+        status: 'feedback',
+      },
+      {
+        id: quizId,
+        title,
+        questions,
+        answers: reviewAnswers,
+        questionIndex,
+        status: 'review',
+        reviewIndexes: new Array(questions.length).fill(questionIndex),
+        reviewIndex: questions.length - 1,
+      },
+    ];
+
+    if (scenarios.some((quiz) => renderStudyQuiz(quiz).content.length > MAX_DISCORD_MESSAGE_LENGTH)) {
+      throw new StudyQuizError('A generated question and its full answer choices are too long to display in Discord. Please run the exam again.');
+    }
+  }
 }
 
 export function getMissedQuestionIndexesForReview(quiz) {
