@@ -162,3 +162,106 @@ test('OpenRouter does not retry an empty response unless it ended because of len
     else process.env.OPENROUTER_MODEL = originalModel;
   }
 });
+
+test('OpenRouter continues a partial length-limited answer without its incomplete final line', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  const originalModel = process.env.OPENROUTER_MODEL;
+  const originalWarn = console.warn;
+  const bodies = [];
+
+  process.env.OPENROUTER_API_KEY = 'test-key';
+  process.env.OPENROUTER_MODEL = 'test/model';
+  console.warn = () => {};
+  globalThis.fetch = async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    const payload = bodies.length === 1
+      ? {
+        choices: [{
+          finish_reason: 'length',
+          message: { content: 'Completed row.\n| 8 | **Crisis de Pr' },
+        }],
+      }
+      : {
+        choices: [{
+          finish_reason: 'stop',
+          message: { content: '| 8 | **Crisis de Prusia** | Completed |' },
+        }],
+      };
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const answer = await getOpenRouterAnswer({
+      systemPrompt: 'System prompt',
+      userContent: 'Create a table',
+      maxTokens: 2500,
+      maxContinuations: 2,
+    });
+
+    assert.equal(answer, 'Completed row.\n| 8 | **Crisis de Prusia** | Completed |');
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[1].messages[2].role, 'assistant');
+    assert.equal(bodies[1].messages[2].content, 'Completed row.');
+    assert.equal(bodies[1].messages[3].role, 'user');
+    assert.match(bodies[1].messages[3].content, /Do not repeat/);
+    assert.deepEqual(bodies[1].reasoning, { enabled: false });
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+    if (originalModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = originalModel;
+  }
+});
+
+test('OpenRouter stops after two continuation requests and marks the answer incomplete', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  const originalModel = process.env.OPENROUTER_MODEL;
+  const originalWarn = console.warn;
+  let requests = 0;
+
+  process.env.OPENROUTER_API_KEY = 'test-key';
+  process.env.OPENROUTER_MODEL = 'test/model';
+  console.warn = () => {};
+  globalThis.fetch = async () => {
+    requests += 1;
+    return new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'length',
+        message: { content: `Section ${requests} complete.\nunfinished ${requests}` },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const answer = await getOpenRouterAnswer({
+      systemPrompt: 'System prompt',
+      userContent: 'Write a long report',
+      maxTokens: 4000,
+      maxContinuations: 2,
+    });
+
+    assert.equal(requests, 3);
+    assert.match(answer, /Section 1 complete\./);
+    assert.match(answer, /Section 2 complete\./);
+    assert.match(answer, /Section 3 complete\./);
+    assert.doesNotMatch(answer, /unfinished/);
+    assert.match(answer, /may still be incomplete/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+    if (originalModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = originalModel;
+  }
+});

@@ -155,6 +155,24 @@ test('agent provider data collection is denied by default and can be explicitly 
   );
 });
 
+test('agent response formats use the expanded output budgets and two continuations', async () => {
+  const expectedLimits = {
+    concise: 1000,
+    balanced: 2500,
+    detailed: 4000,
+    report: 4000,
+  };
+
+  for (const [responseFormat, maxTokens] of Object.entries(expectedLimits)) {
+    const request = await buildUserAgentRequest(
+      makeAgent({ responseFormat }),
+      'Produce a complete response.',
+    );
+    assert.equal(request.maxTokens, maxTokens);
+    assert.equal(request.maxContinuations, 2);
+  }
+});
+
 test('markdown attachments are sent to OpenRouter as plain text', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response('# Notes\n\nA test document.');
