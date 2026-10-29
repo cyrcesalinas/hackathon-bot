@@ -53,6 +53,19 @@ test('dedicated agent-store credentials override generic credentials', () => {
   assert.equal(config.owner, 'BOT_AGENT_OWNER');
 });
 
+test('blank agent-store owner falls back to ADB_USER', () => {
+  const config = resolveAgentStoreConfig({
+    ADB_USER: 'bot_data_owner',
+    ADB_PASSWORD: 'generic-password',
+    AGENT_STORE_USER: 'bot_agent_app',
+    AGENT_STORE_PASSWORD: 'agent-password',
+    AGENT_STORE_OWNER: '   ',
+  });
+
+  assert.equal(config.user, 'bot_agent_app');
+  assert.equal(config.owner, 'BOT_DATA_OWNER');
+});
+
 test('researcher preset enables web research and report output', () => {
   const agent = validateNewAgent({
     ownerUserId: '123',

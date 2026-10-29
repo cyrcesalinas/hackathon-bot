@@ -212,14 +212,17 @@ BEGIN
     END IF;
   END IF;
 
-  SELECT COUNT(*)
-    INTO v_count
-    FROM (
-      SELECT UPPER(NAME)
-        FROM AGENT_PROFILES
-       GROUP BY UPPER(NAME)
-      HAVING COUNT(*) > 1
-    );
+  -- Keep this query dynamic so a fresh schema can compile this block before
+  -- AGENT_PROFILES is created earlier in the same block.
+  EXECUTE IMMEDIATE q'~
+    SELECT COUNT(*)
+      FROM (
+        SELECT UPPER(NAME)
+          FROM AGENT_PROFILES
+         GROUP BY UPPER(NAME)
+        HAVING COUNT(*) > 1
+      )
+  ~' INTO v_count;
 
   IF v_count > 0 THEN
     RAISE_APPLICATION_ERROR(
@@ -243,7 +246,7 @@ BEGIN
     EXECUTE IMMEDIATE 'DROP INDEX AGENT_PROFILES_GUILD_NAME_UQ';
   END IF;
 
-  DBMS_OUTPUT.PUT_LINE('Agent store schema is ready.');
+  DBMS_OUTPUT.PUT_LINE('Agent store schema is ready in ' || USER || '.');
 END;
 /
 
