@@ -107,6 +107,8 @@ export async function getOpenRouterAnswer({
   tools,
   plugins,
   provider,
+  responseFormat,
+  reasoning,
 }) {
   const selectedModel = typeof model === 'string' && model.trim()
     ? model.trim()
@@ -130,6 +132,8 @@ export async function getOpenRouterAnswer({
   if (Array.isArray(tools) && tools.length) requestBody.tools = tools;
   if (plugins) requestBody.plugins = plugins;
   if (provider) requestBody.provider = provider;
+  if (responseFormat) requestBody.response_format = responseFormat;
+  if (reasoning) requestBody.reasoning = reasoning;
 
   const initialResult = await sendOpenRouterRequest(requestBody);
   const initialInspection = inspectOpenRouterResult(initialResult, requestBody);

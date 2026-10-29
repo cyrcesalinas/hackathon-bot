@@ -14,24 +14,71 @@ function normalizeText(value, maxLength) {
   return value.replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-export function parseStudyQuiz(answer, expectedQuestionCount) {
-  const candidate = typeof answer === 'string' ? answer.trim() : '';
-  const firstBrace = candidate.indexOf('{');
-  const lastBrace = candidate.lastIndexOf('}');
-
-  if (firstBrace < 0 || lastBrace <= firstBrace) {
-    throw new StudyQuizError('I could not format the generated exam as a quiz. Please try again.');
-  }
-
-  let parsed;
+function parseJsonObject(value) {
   try {
-    parsed = JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
   } catch {
+    return null;
+  }
+}
+
+function extractStudyExamJson(answer) {
+  const candidate = typeof answer === 'string' ? answer.trim() : '';
+  if (!candidate) return null;
+
+  const wholeAnswer = parseJsonObject(candidate);
+  if (wholeAnswer) return wholeAnswer;
+
+  // Accept a JSON object wrapped in prose or a Markdown code fence. Track quoted
+  // braces so strings such as explanations containing "{...}" do not end early.
+  for (let start = candidate.indexOf('{'); start >= 0; start = candidate.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start; index < candidate.length; index += 1) {
+      const character = candidate[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+
+      if (character === '"') inString = true;
+      else if (character === '{') depth += 1;
+      else if (character === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          const parsed = parseJsonObject(candidate.slice(start, index + 1));
+          if (parsed) return parsed;
+          break;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function hasExactKeys(value, expectedKeys) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).length === expectedKeys.length &&
+    expectedKeys.every((key) => Object.hasOwn(value, key));
+}
+
+export function parseStudyQuiz(answer, expectedQuestionCount) {
+  const parsed = extractStudyExamJson(answer);
+  if (!hasExactKeys(parsed, ['title', 'questions'])) {
     throw new StudyQuizError('I could not format the generated exam as a quiz. Please try again.');
   }
 
-  const title = normalizeText(parsed?.title, 100) || 'Practice exam';
-  if (!Array.isArray(parsed?.questions) || parsed.questions.length !== expectedQuestionCount) {
+  const title = normalizeText(parsed.title, 100);
+  if (!title) {
+    throw new StudyQuizError('The generated exam did not include a title. Please try again.');
+  }
+  if (!Array.isArray(parsed.questions) || parsed.questions.length !== expectedQuestionCount) {
     throw new StudyQuizError('The generated exam did not contain the requested number of questions. Please try again.');
   }
 
@@ -43,6 +90,7 @@ export function parseStudyQuiz(answer, expectedQuestionCount) {
       : [];
 
     if (
+      !hasExactKeys(item, ['question', 'choices', 'correctIndex', 'explanation']) ||
       !question ||
       !explanation ||
       choices.length !== 4 ||

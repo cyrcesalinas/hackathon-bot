@@ -187,6 +187,41 @@ function getUploadMaxTokens() {
   return Math.min(configured, 4000);
 }
 
+function getStudyExamResponseFormat() {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'study_exam',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          questions: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                question: { type: 'string' },
+                choices: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                correctIndex: { type: 'integer', enum: [0, 1, 2, 3] },
+                explanation: { type: 'string' },
+              },
+              required: ['question', 'choices', 'correctIndex', 'explanation'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['title', 'questions'],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
 function getStudyResponseOptions(request) {
   const { name } = request;
   const questionCount = Number.isInteger(request.questionCount) ? request.questionCount : 5;
@@ -198,6 +233,10 @@ function getStudyResponseOptions(request) {
         : name === 'upload'
           ? getUploadMaxTokens()
           : 900,
+    ...(name === 'exam' ? {
+      responseFormat: getStudyExamResponseFormat(),
+      reasoning: { effort: 'low' },
+    } : {}),
     ...(name === 'guide' ? { tools: [{ type: 'openrouter:web_search' }] } : {}),
   };
 }
