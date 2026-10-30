@@ -23,6 +23,8 @@ Return exactly one JSON object, with no Markdown or additional text. Use one of 
 {"kind":"sum","dataset":"dataset_id","measure":"numeric_column_id","groupBy":[],"filters":[],"limit":10}
 {"kind":"avg","dataset":"dataset_id","measure":"numeric_column_id","groupBy":[],"filters":[],"limit":10}
 
+Copy dataset and column id values from the catalog. The ids are case-sensitive; do not use labels in their place. Limit must be an integer from 1 through 25. When the user asks for all records, use limit=25. A clear request for one named column from one named dataset can use an empty filters array.
+
 Use only operators listed for a column. Omit orderBy when no ordering is requested. If the request is ambiguous, needs unsupported data, or cannot be represented by these plans, return kind=clarify. Do not assume a value or broaden a query to compensate for missing details.`;
 
 export class DbAssistantError extends Error {
@@ -91,6 +93,7 @@ export async function answerAdbQuestion(question) {
     return result.answer;
   } catch (error) {
     if (error instanceof AdbQueryPlanError) {
+      console.warn('ADB query plan rejected:', error.message);
       throw new DbAssistantError('That question does not match an approved database query. Try specifying an available dataset and a supported filter.', 'DB_PLAN_REJECTED');
     }
     console.error('ADB query execution failed:', error.code ?? error.name);

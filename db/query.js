@@ -109,7 +109,7 @@ function normalizeValue(column, value) {
   throw new Error('Unsupported column type in ADB query catalog');
 }
 
-function validatePlan(plan) {
+export function validateAdbQueryPlan(plan) {
   if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
     throw new Error('Invalid query plan');
   }
@@ -135,7 +135,7 @@ function validatePlan(plan) {
   assertOnlyKeys(plan, allowedPlanKeys[plan.kind], 'query plan');
 
   const dataset = getDataset(plan.dataset);
-  if (plan.filters !== undefined && !Array.isArray(plan.filters)) {
+  if (plan.filters !== undefined && plan.filters !== null && !Array.isArray(plan.filters)) {
     throw new Error('Invalid query filters');
   }
   const filters = Array.isArray(plan.filters) ? plan.filters : [];
@@ -205,7 +205,7 @@ function validatePlan(plan) {
       orderBy = { column, direction: plan.orderBy.direction };
     }
   } else {
-    if (plan.groupBy !== undefined && !Array.isArray(plan.groupBy)) {
+    if (plan.groupBy !== undefined && plan.groupBy !== null && !Array.isArray(plan.groupBy)) {
       throw new Error('Invalid grouping columns');
     }
     const groupIds = Array.isArray(plan.groupBy) ? plan.groupBy : [];
@@ -231,11 +231,12 @@ function validatePlan(plan) {
 
   if (
     plan.limit !== undefined &&
-    (!Number.isInteger(plan.limit) || plan.limit < 1 || plan.limit > MAX_ROWS)
+    plan.limit !== null &&
+    (!Number.isInteger(plan.limit) || plan.limit < 1)
   ) {
     throw new Error('Invalid row limit');
   }
-  const limit = plan.limit ?? 10;
+  const limit = Math.min(plan.limit ?? 10, MAX_ROWS);
   return {
     kind: plan.kind,
     dataset,
@@ -312,7 +313,7 @@ function buildQuery(plan) {
 export async function executeAdbQuery(rawPlan) {
   let plan;
   try {
-    plan = validatePlan(rawPlan);
+    plan = validateAdbQueryPlan(rawPlan);
   } catch (error) {
     throw new AdbQueryPlanError(error.message);
   }
