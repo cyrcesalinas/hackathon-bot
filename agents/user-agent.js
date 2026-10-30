@@ -202,7 +202,6 @@ function getResponseFormatInstruction(responseFormat) {
 
 function getLanguageInstruction(language) {
   if (language === 'en') return 'Respond in English.';
-  if (language === 'es') return 'Respond in Spanish.';
   return 'Respond in the language used by the student.';
 }
 

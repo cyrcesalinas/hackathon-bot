@@ -77,6 +77,11 @@ import { AdbCatalogScanError, scanAdbCatalog } from './db/catalog-scan.js';
 import { closeAgentStorePool, isAgentStoreConfigured } from './db/agent-store.js';
 import { checkAdbConnection, closeAdbPool, isAdbConfigured } from './db/connection.js';
 import { prepareDiscordResponse } from './discord-response.js';
+import {
+  buildAgentFollowUpRequest,
+  getAgentConversation,
+  storeAgentConversation,
+} from './agent-conversation.js';
 
 // Create an express app
 const app = express();
@@ -142,6 +147,11 @@ async function updateInteractionResponse(applicationId, interactionToken, conten
   if (!response.ok) {
     throw new Error(`Discord returned HTTP ${response.status} while updating the response`);
   }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 function limitDiscordMessage(content) {
@@ -185,11 +195,88 @@ function buildAskRequest(prompt) {
   };
 }
 
+async function handleAgentConversationReply(message, conversation, prompt) {
+  const replyOptions = { allowedMentions: { parse: [], repliedUser: false } };
+  if (conversation.ownerUserId !== message.author.id) {
+    await message.reply({
+      content: 'Only the user who started this agent run can continue with its file context.',
+      ...replyOptions,
+    });
+    return;
+  }
+  if (conversation.channelId !== message.channelId) return;
+  if (!prompt) {
+    await message.reply({
+      content: 'Reply with a follow-up question or instruction for this agent.',
+      ...replyOptions,
+    });
+    return;
+  }
+  if (!isOpenRouterConfigured()) {
+    await message.reply({
+      content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
+      ...replyOptions,
+    });
+    return;
+  }
+  if (isAgentRunRateLimited(message.author.id)) {
+    await message.reply({
+      content: 'You are running agents too quickly. Wait a minute and try again.',
+      ...replyOptions,
+    });
+    return;
+  }
+
+  try {
+    await message.channel.sendTyping().catch(() => {});
+    const request = await buildAgentFollowUpRequest(conversation, prompt);
+    const answer = await getOpenRouterAnswer({
+      ...request,
+      tools: withOpenRouterDateTimeTool(request.tools),
+    });
+    const prepared = prepareDiscordResponse(answer, {
+      title: `${conversation.agent.name} completed your follow-up`,
+      filename: `${conversation.agent.name}-follow-up.md`,
+      description: `Follow-up response from ${conversation.agent.name} in Markdown format`,
+    });
+    const files = prepared.attachment
+      ? [new AttachmentBuilder(Buffer.from(prepared.attachment.content, 'utf8'), {
+        name: prepared.attachment.filename,
+        description: prepared.attachment.description,
+      })]
+      : [];
+    const responseMessage = await message.reply({
+      content: prepared.content,
+      files,
+      ...replyOptions,
+    });
+    storeAgentConversation(responseMessage.id, {
+      ...conversation,
+      previousTask: prompt,
+      previousAnswer: answer,
+    });
+  } catch (error) {
+    console.error('Agent follow-up failed:', error?.code ?? error?.name ?? 'unknown error');
+    const content = error instanceof StudyFileError || error instanceof AgentCommandError
+      ? error.userMessage
+      : "I couldn't continue that agent run right now. Please try again shortly.";
+    try {
+      await message.reply({ content, ...replyOptions });
+    } catch (replyError) {
+      console.error('Could not send the agent follow-up error:', replyError?.code ?? replyError?.name ?? 'unknown error');
+    }
+  }
+}
+
 async function handleMentionedMessage(message) {
   const botId = message.client.user?.id;
-  if (!botId || message.author.bot || !message.mentions.users.has(botId)) return;
+  if (!botId || message.author.bot) return;
 
+  const mentionsBot = message.mentions.users.has(botId);
+  if (!mentionsBot) return;
+  const conversation = getAgentConversation(message.reference?.messageId);
   const prompt = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
+  if (conversation) return handleAgentConversationReply(message, conversation, prompt);
   const replyOptions = { allowedMentions: { parse: [], repliedUser: false } };
 
   if (!prompt) {
@@ -365,17 +452,22 @@ async function answerInteraction(
   failureMessage,
   ownerUserId,
   responseFormatter,
+  onComplete,
 ) {
   let content;
   let components;
   let attachment;
   let storedStudyQuizId;
+  let request;
+  let answer;
+  let succeeded = false;
   try {
-    const request = await requestFactory();
-    const answer = await getOpenRouterAnswer({
+    request = await requestFactory();
+    answer = await getOpenRouterAnswer({
       ...request,
       tools: withOpenRouterDateTimeTool(request.tools),
     });
+    succeeded = true;
     if (responseFormatter) {
       const formattedResponse = await responseFormatter(answer, request, ownerUserId);
       content = formattedResponse.content;
@@ -402,7 +494,16 @@ async function answerInteraction(
   }
 
   try {
-    await updateInteractionResponse(applicationId, interactionToken, content, components, attachment);
+    const responseMessage = await updateInteractionResponse(
+      applicationId,
+      interactionToken,
+      content,
+      components,
+      attachment,
+    );
+    if (succeeded && onComplete && responseMessage?.id) {
+      await onComplete({ answer, request, responseMessage });
+    }
   } catch (error) {
     if (storedStudyQuizId) pendingStudyQuizzes.delete(storedStudyQuizId);
     console.error('Could not update the Discord interaction:', error.message);
@@ -416,7 +517,7 @@ function deferOpenRouterCommand(
   operation,
   failureMessage,
   responseFormatter,
-  { ephemeral = true } = {},
+  { ephemeral = true, onComplete } = {},
 ) {
   res.send({
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
@@ -432,6 +533,7 @@ function deferOpenRouterCommand(
       failureMessage,
       getDiscordUserId(req),
       responseFormatter,
+      onComplete,
     );
   });
 }
@@ -568,7 +670,7 @@ function formatAgentSummary(agent, { showOwner = false } = {}) {
     .map((tool) => AGENT_TOOL_DEFINITIONS[tool]?.name)
     .filter(Boolean);
   const responseFormat = AGENT_RESPONSE_FORMATS[agent.responseFormat] ?? 'Balanced';
-  const language = AGENT_LANGUAGES[agent.language] ?? 'Match the user';
+  const language = AGENT_LANGUAGES[agent.language] ?? AGENT_LANGUAGES.auto;
   const visibility = AGENT_VISIBILITIES[agent.visibility] ?? AGENT_VISIBILITIES.global;
   return [
     `**${agent.name}** · ${preset} · v${agent.version ?? 1}`,
@@ -923,6 +1025,7 @@ function handleAgentUiModal(res, req, customId) {
     }
     try {
       const preset = getSingleAgentModalValue(req.body.data, 'agent_preset');
+      const language = getSingleAgentModalValue(req.body.data, 'agent_language');
       const styleValue = String(getSingleAgentModalValue(req.body.data, 'agent_style') ?? '').trim();
       const baseProfile = session.draft ?? current;
       const keepExistingOptions = Boolean(baseProfile && preset === baseProfile.preset);
@@ -939,7 +1042,7 @@ function handleAgentUiModal(res, req, customId) {
           ? baseProfile.tools.includes(AGENT_TOOLS.FILE_ANALYSIS)
           : undefined,
         responseFormat: keepExistingOptions ? baseProfile.responseFormat : undefined,
-        language: baseProfile?.language ?? 'auto',
+        language: Object.hasOwn(AGENT_LANGUAGES, language) ? language : 'auto',
       });
       session.draftMode = editing ? 'edit' : 'create';
       session.editingAgentName = editing ? current.name : null;
@@ -979,6 +1082,8 @@ function handleAgentUiModal(res, req, customId) {
     const task = getSingleAgentModalValue(req.body.data, 'agent_task');
     const attachmentValue = getModalValue(req.body.data, 'agent_file');
     const attachmentId = Array.isArray(attachmentValue) ? attachmentValue[0] : undefined;
+    const resolvedAttachments = req.body.data.resolved?.attachments ?? {};
+    let conversationAgent;
     return deferOpenRouterCommand(
       res,
       req,
@@ -986,12 +1091,13 @@ function handleAgentUiModal(res, req, customId) {
         const runnable = isTest
           ? await requireOwnedAgent(userId, selected.name)
           : await requireRunnableAgent(selected.name);
+        conversationAgent = runnable;
         return {
           ...(await buildUserAgentRequest(
             runnable,
             task,
             attachmentId,
-            req.body.data.resolved?.attachments,
+            resolvedAttachments,
           )),
           responseDelivery: {
             title: `${runnable.name} completed your request`,
@@ -1005,7 +1111,22 @@ function handleAgentUiModal(res, req, customId) {
         ? 'I could not test that agent right now. Please try again shortly.'
         : 'I could not run that agent right now. Please try again shortly.',
       undefined,
-      { ephemeral: isTest },
+      {
+        ephemeral: isTest,
+        onComplete: isTest
+          ? undefined
+          : ({ answer, responseMessage }) => {
+            storeAgentConversation(responseMessage.id, {
+              ownerUserId: userId,
+              channelId: req.body.channel_id ?? responseMessage.channel_id,
+              agent: conversationAgent,
+              originalTask: task,
+              attachmentId,
+              resolvedAttachments,
+              previousAnswer: answer,
+            });
+          },
+      },
     );
   }
 

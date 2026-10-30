@@ -1,7 +1,12 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import oracledb from 'oracledb';
-import { getLegacyCapability, getToolsFromLegacyCapability, normalizeAgentTools } from '../agents/agent-config.js';
+import {
+  AGENT_LANGUAGES,
+  getLegacyCapability,
+  getToolsFromLegacyCapability,
+  normalizeAgentTools,
+} from '../agents/agent-config.js';
 
 const AGENT_POOL_ALIAS = 'discord-bot-agent-store';
 const AGENT_TABLE_NAME = 'AGENT_PROFILES';
@@ -105,7 +110,7 @@ function mapAgent(row) {
     preset: row.PRESET ?? 'custom',
     tools,
     responseFormat: row.RESPONSE_FORMAT ?? 'balanced',
-    language: row.LANGUAGE ?? 'auto',
+    language: Object.hasOwn(AGENT_LANGUAGES, row.LANGUAGE) ? row.LANGUAGE : 'auto',
     visibility: 'global',
     version: Number(row.VERSION_NO ?? 1),
     createdAt: row.CREATED_AT,

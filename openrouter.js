@@ -139,18 +139,25 @@ function discardIncompleteFinalLine(answer) {
   return completeLines || answer;
 }
 
-async function continueLengthLimitedAnswer(initialAnswer, requestBody, maxContinuations) {
+async function continueLengthLimitedAnswer(
+  initialAnswer,
+  requestBody,
+  maxContinuations,
+  resolvedModel,
+) {
   const continuationLimit = Math.min(
     MAX_CONTINUATION_REQUESTS,
     Math.max(0, Number.isInteger(maxContinuations) ? maxContinuations : 0),
   );
   let answer = discardIncompleteFinalLine(initialAnswer);
   let attempts = 0;
+  let continuationFailed = false;
 
   for (let continuation = 1; continuation <= continuationLimit; continuation += 1) {
     attempts = continuation;
     const continuationRequestBody = {
       ...requestBody,
+      ...(resolvedModel ? { model: resolvedModel } : {}),
       messages: [
         ...requestBody.messages,
         { role: 'assistant', content: answer },
@@ -158,7 +165,21 @@ async function continueLengthLimitedAnswer(initialAnswer, requestBody, maxContin
       ],
       reasoning: { enabled: false },
     };
-    const result = await sendOpenRouterRequest(continuationRequestBody);
+    let result;
+    try {
+      result = await sendOpenRouterRequest(continuationRequestBody);
+    } catch (error) {
+      continuationFailed = true;
+      console.error('OpenRouter continuation failed; preserving the partial answer:', JSON.stringify({
+        requestedModel: continuationRequestBody.model,
+        continuation,
+        continuationLimit,
+        error: error?.message ?? 'unknown error',
+      }));
+      if (continuation < continuationLimit) continue;
+      break;
+    }
+    continuationFailed = false;
     const inspection = inspectOpenRouterResult(result, continuationRequestBody);
 
     console.warn('OpenRouter continued a length-limited response:', JSON.stringify({
@@ -182,6 +203,9 @@ async function continueLengthLimitedAnswer(initialAnswer, requestBody, maxContin
   }
 
   const attemptLabel = attempts === 1 ? 'attempt' : 'attempts';
+  if (continuationFailed) {
+    return `${answer}\n\n> ⚠️ A continuation request failed after ${attempts} continuation ${attemptLabel}. The completed text above was preserved, but the response may still be incomplete.`;
+  }
   return `${answer}\n\n> ⚠️ This response reached the maximum output length after ${attempts} continuation ${attemptLabel} and may still be incomplete.`;
 }
 
@@ -232,6 +256,7 @@ export async function getOpenRouterAnswer({
         initialInspection.answer,
         requestBody,
         maxContinuations,
+        initialInspection.diagnostics.responseModel,
       );
     }
     return initialInspection.answer;
@@ -254,6 +279,7 @@ export async function getOpenRouterAnswer({
           retryInspection.answer,
           retryRequestBody,
           maxContinuations,
+          retryInspection.diagnostics.responseModel,
         );
       }
       return retryInspection.answer;

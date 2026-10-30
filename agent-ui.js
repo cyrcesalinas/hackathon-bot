@@ -187,6 +187,9 @@ export function buildAgentHomeData(session) {
 
 export function buildAgentProfileModal(session, { agent, mode = 'create' } = {}) {
   const selectedPreset = agent?.preset ?? 'general';
+  const selectedLanguage = Object.hasOwn(AGENT_LANGUAGES, agent?.language)
+    ? agent.language
+    : 'auto';
   return {
     custom_id: modalId(session.id, mode === 'edit' ? 'edit_submit' : 'create_submit'),
     title: mode === 'edit' ? 'Edit agent' : 'Create agent',
@@ -219,6 +222,16 @@ export function buildAgentProfileModal(session, { agent, mode = 'create' } = {})
           label: preset.name,
           description: truncate(preset.style, 100),
           default: preset.id === selectedPreset,
+        })),
+      }),
+      label('Response language', {
+        type: COMPONENT_TYPE_RADIO_GROUP,
+        custom_id: 'agent_language',
+        required: true,
+        options: Object.entries(AGENT_LANGUAGES).map(([value, name]) => ({
+          value,
+          label: name,
+          default: value === selectedLanguage,
         })),
       }),
     ],

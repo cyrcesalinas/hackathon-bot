@@ -64,9 +64,8 @@ export const AGENT_RESPONSE_FORMATS = Object.freeze({
 });
 
 export const AGENT_LANGUAGES = Object.freeze({
-  auto: 'Match the user',
+  auto: 'Match user language',
   en: 'English',
-  es: 'Spanish',
 });
 
 export const AGENT_VISIBILITIES = Object.freeze({

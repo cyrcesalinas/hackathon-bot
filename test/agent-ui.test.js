@@ -49,11 +49,16 @@ test('agent profile modal uses labels and a preset radio group', () => {
   const session = createAgentUiSession('owner-2');
   const modal = buildAgentProfileModal(session);
 
-  assert.equal(modal.components.length, 4);
+  assert.equal(modal.components.length, 5);
   assert.ok(modal.components.every((component) => component.type === 18));
   assert.equal(modal.components[0].component.type, MessageComponentTypes.INPUT_TEXT);
   assert.equal(modal.components[3].component.type, 21);
   assert.ok(modal.components[3].component.options.length >= 2);
+  assert.equal(modal.components[4].component.type, 21);
+  assert.deepEqual(
+    modal.components[4].component.options.map(({ label }) => label),
+    ['Match user language', 'English'],
+  );
   assert.deepEqual(
     parseAgentUiCustomId(modal.custom_id, AGENT_UI_MODAL_PREFIX),
     { sessionId: session.id, action: 'create_submit' },

@@ -177,6 +177,7 @@ test('OpenRouter continues a partial length-limited answer without its incomplet
     bodies.push(JSON.parse(options.body));
     const payload = bodies.length === 1
       ? {
+        model: 'resolved/model',
         choices: [{
           finish_reason: 'length',
           message: { content: 'Completed row.\n| 8 | **Crisis de Pr' },
@@ -204,6 +205,8 @@ test('OpenRouter continues a partial length-limited answer without its incomplet
 
     assert.equal(answer, 'Completed row.\n| 8 | **Crisis de Prusia** | Completed |');
     assert.equal(bodies.length, 2);
+    assert.equal(bodies[0].model, 'test/model');
+    assert.equal(bodies[1].model, 'resolved/model');
     assert.equal(bodies[1].messages[2].role, 'assistant');
     assert.equal(bodies[1].messages[2].content, 'Completed row.');
     assert.equal(bodies[1].messages[3].role, 'user');
@@ -259,6 +262,70 @@ test('OpenRouter stops after two continuation requests and marks the answer inco
   } finally {
     globalThis.fetch = originalFetch;
     console.warn = originalWarn;
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+    if (originalModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = originalModel;
+  }
+});
+
+test('OpenRouter preserves accumulated text when a later continuation fails', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  const originalModel = process.env.OPENROUTER_MODEL;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+  const bodies = [];
+
+  process.env.OPENROUTER_API_KEY = 'test-key';
+  process.env.OPENROUTER_MODEL = 'openrouter/free';
+  console.warn = () => {};
+  console.error = () => {};
+  globalThis.fetch = async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    if (bodies.length === 3) {
+      return new Response(JSON.stringify({
+        error: { message: 'Model call failed: invalid request (400)' },
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const part = bodies.length === 1 ? 'one' : 'two';
+    return new Response(JSON.stringify({
+      model: 'resolved/free-model',
+      choices: [{
+        finish_reason: 'length',
+        message: { content: `Part ${part} complete.\nunfinished ${part}` },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const answer = await getOpenRouterAnswer({
+      systemPrompt: 'System prompt',
+      userContent: 'Write a long report',
+      maxTokens: 2500,
+      maxContinuations: 2,
+    });
+
+    assert.equal(bodies.length, 3);
+    assert.equal(bodies[0].model, 'openrouter/free');
+    assert.equal(bodies[1].model, 'resolved/free-model');
+    assert.equal(bodies[2].model, 'resolved/free-model');
+    assert.match(answer, /Part one complete\./);
+    assert.match(answer, /Part two complete\./);
+    assert.doesNotMatch(answer, /unfinished/);
+    assert.match(answer, /continuation request failed/);
+    assert.match(answer, /may still be incomplete/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+    console.error = originalError;
     if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = originalKey;
     if (originalModel === undefined) delete process.env.OPENROUTER_MODEL;
