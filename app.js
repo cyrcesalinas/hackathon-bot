@@ -9,6 +9,13 @@ import {
   MessageComponentTypes,
   verifyKeyMiddleware,
 } from 'discord-interactions';
+import {
+  ActivityType,
+  AttachmentBuilder,
+  Client,
+  Events,
+  GatewayIntentBits,
+} from 'discord.js';
 import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
 import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
@@ -73,6 +80,10 @@ const AGENT_DRAFT_LIMIT = 200;
 const STUDY_QUIZ_TTL_MS = 30 * 60_000;
 const STUDY_QUIZ_LIMIT = 100;
 const pendingStudyQuizzes = new Map();
+const MENTION_REQUESTS_PER_USER_PER_MINUTE = 5;
+const MENTION_REQUESTS_GLOBAL_PER_MINUTE = 30;
+const recentMentionRequestsByUser = new Map();
+let recentMentionRequestsGlobal = [];
 
 async function updateInteractionResponse(applicationId, interactionToken, content, components, attachment) {
   const body = {
@@ -123,6 +134,108 @@ function limitDiscordMessage(content) {
   return characters.length > 1900
     ? `${characters.slice(0, 1897).join('')}…`
     : content;
+}
+
+function isMentionRequestRateLimited(userId) {
+  const now = Date.now();
+  const cutoff = now - 60_000;
+  const recent = (recentMentionRequestsByUser.get(userId) ?? []).filter((timestamp) => timestamp > cutoff);
+  recentMentionRequestsGlobal = recentMentionRequestsGlobal.filter((timestamp) => timestamp > cutoff);
+
+  if (
+    recent.length >= MENTION_REQUESTS_PER_USER_PER_MINUTE ||
+    recentMentionRequestsGlobal.length >= MENTION_REQUESTS_GLOBAL_PER_MINUTE
+  ) {
+    recentMentionRequestsByUser.set(userId, recent);
+    return true;
+  }
+
+  recent.push(now);
+  recentMentionRequestsGlobal.push(now);
+  recentMentionRequestsByUser.set(userId, recent);
+
+  for (const [trackedUserId, timestamps] of recentMentionRequestsByUser) {
+    if (timestamps.every((timestamp) => timestamp <= cutoff)) {
+      recentMentionRequestsByUser.delete(trackedUserId);
+    }
+  }
+  return false;
+}
+
+function buildAskRequest(prompt) {
+  return {
+    systemPrompt: ASK_SYSTEM_PROMPT,
+    userContent: prompt,
+    maxTokens: 800,
+  };
+}
+
+async function handleMentionedMessage(message) {
+  const botId = message.client.user?.id;
+  if (!botId || message.author.bot || !message.mentions.users.has(botId)) return;
+
+  const prompt = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
+  const replyOptions = { allowedMentions: { parse: [], repliedUser: false } };
+
+  if (!prompt) {
+    await message.reply({
+      content: `Hi! Mention me with a question, for example: <@${botId}> explain this concept.`,
+      ...replyOptions,
+    });
+    return;
+  }
+
+  if (!isOpenRouterConfigured()) {
+    await message.reply({
+      content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
+      ...replyOptions,
+    });
+    return;
+  }
+
+  if (isMentionRequestRateLimited(message.author.id)) {
+    await message.reply({
+      content: 'You are asking too quickly. Wait a minute and try again.',
+      ...replyOptions,
+    });
+    return;
+  }
+
+  try {
+    await message.channel.sendTyping().catch(() => {});
+    const request = buildAskRequest(prompt);
+    const answer = await getOpenRouterAnswer({
+      ...request,
+      tools: withOpenRouterDateTimeTool(request.tools),
+    });
+    const prepared = prepareDiscordResponse(answer, {
+      title: 'Assistant answer',
+      filename: 'assistant-response.md',
+      description: 'Complete assistant response in Markdown format',
+    });
+    const files = prepared.attachment
+      ? [new AttachmentBuilder(Buffer.from(prepared.attachment.content, 'utf8'), {
+        name: prepared.attachment.filename,
+        description: prepared.attachment.description,
+      })]
+      : [];
+
+    await message.reply({
+      content: prepared.content,
+      files,
+      ...replyOptions,
+    });
+  } catch (error) {
+    console.error('Mention response failed:', error?.code ?? error?.name ?? 'unknown error');
+    try {
+      await message.reply({
+        content: "I couldn't get an answer right now. Please try again shortly.",
+        ...replyOptions,
+      });
+    } catch (replyError) {
+      console.error('Could not send the mention error response:', replyError?.code ?? replyError?.name ?? 'unknown error');
+    }
+  }
 }
 
 function cleanExpiredStudyQuizzes() {
@@ -1065,11 +1178,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       return deferOpenRouterCommand(
         res,
         req,
-        async () => ({
-          systemPrompt: ASK_SYSTEM_PROMPT,
-          userContent: prompt.trim(),
-          maxTokens: 800,
-        }),
+        async () => buildAskRequest(prompt.trim()),
         '/ask',
         "I couldn't get an answer right now. Please try again shortly.",
       );
@@ -1186,11 +1295,41 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
   return res.status(400).json({ error: 'unknown interaction type' });
 });
 
+const mentionClient = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+  presence: {
+    status: 'online',
+    activities: [{
+      name: '@cyrce-boton para preguntas',
+      type: ActivityType.Listening,
+    }],
+  },
+});
+
+mentionClient.on(Events.MessageCreate, (message) => {
+  void handleMentionedMessage(message).catch((error) => {
+    console.error('Mention handler failed:', error?.code ?? error?.name ?? 'unknown error');
+  });
+});
+
+mentionClient.on(Events.Error, (error) => {
+  console.error('Discord Gateway error:', error?.code ?? error?.name ?? 'unknown error');
+});
+
 const server = app.listen(PORT, () => {
   console.log('Listening on port', PORT);
 });
 
+if (process.env.DISCORD_TOKEN?.trim()) {
+  mentionClient.login(process.env.DISCORD_TOKEN.trim()).catch((error) => {
+    console.error('Discord Gateway login failed:', error?.code ?? error?.name ?? 'unknown error');
+  });
+} else {
+  console.error('DISCORD_TOKEN is missing; mention replies are disabled.');
+}
+
 async function shutdown() {
+  mentionClient.destroy();
   server.close(async () => {
     try {
       await closeAdbPool();
