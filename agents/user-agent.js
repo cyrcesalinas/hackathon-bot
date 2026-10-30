@@ -244,6 +244,11 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
       : 2500;
   const openRouterTools = canSearchWeb ? [{ type: 'openrouter:web_search' }] : undefined;
   const provider = resolveAgentProviderPolicy();
+  const reasoning = attachmentId !== undefined
+    ? { enabled: false }
+    : ['detailed', 'report'].includes(agent.responseFormat)
+      ? { effort: 'low' }
+      : { enabled: false };
 
   if (attachmentId !== undefined) {
     const options = [
@@ -263,6 +268,7 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
       maxContinuations: 2,
       tools: openRouterTools,
       provider,
+      reasoning,
     };
   }
 
@@ -273,5 +279,6 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
     maxContinuations: 2,
     tools: openRouterTools,
     provider,
+    reasoning,
   };
 }
