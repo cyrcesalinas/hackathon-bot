@@ -28,10 +28,10 @@ import {
 } from './openrouter.js';
 import {
   getMissedQuestionIndexesForReview,
-  parseStudyQuiz,
   buildStudyOpenRouterRequest,
   getStudyGuideFilename,
   getStudyCommandRequest,
+  parseStudyQuizWithRetry,
   renderStudyQuiz,
   StudyFileError,
   StudyQuizError,
@@ -362,7 +362,7 @@ async function answerInteraction(
       tools: withOpenRouterDateTimeTool(request.tools),
     });
     if (responseFormatter) {
-      const formattedResponse = responseFormatter(answer, request, ownerUserId);
+      const formattedResponse = await responseFormatter(answer, request, ownerUserId);
       content = formattedResponse.content;
       components = formattedResponse.components;
       attachment = formattedResponse.attachment;
@@ -464,14 +464,15 @@ function handleStudyRequest(res, req, studyRequest) {
       };
     }
     : studyRequest.name === 'exam'
-      ? (answer, _request, ownerUserId) => {
-        let parsedQuiz;
-        try {
-          parsedQuiz = parseStudyQuiz(answer, studyRequest.questionCount);
-        } catch (error) {
-          if (!(error instanceof StudyQuizError)) throw error;
-          return { content: limitDiscordMessage(answer) };
-        }
+      ? async (answer, request, ownerUserId) => {
+        const parsedQuiz = await parseStudyQuizWithRetry(
+          answer,
+          { ...request, questionCount: studyRequest.questionCount },
+          async (retryRequest) => getOpenRouterAnswer({
+            ...retryRequest,
+            tools: withOpenRouterDateTimeTool(retryRequest.tools),
+          }),
+        );
         cleanExpiredStudyQuizzes();
         const quizId = randomUUID();
         const quiz = {
