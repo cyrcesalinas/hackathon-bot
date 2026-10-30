@@ -59,7 +59,7 @@ test('a valid five-question exam renders as the first interactive quiz question'
   );
 });
 
-test('answer feedback bolds the correct answer and uses no check or cross emoji', () => {
+test('answer feedback bolds the correct choice and explains it without repeating answer labels', () => {
   const parsedQuiz = parseStudyQuiz(createValidExam());
   const quiz = {
     id: '00000000-0000-0000-0000-000000000000',
@@ -72,9 +72,11 @@ test('answer feedback bolds the correct answer and uses no check or cross emoji'
   const response = renderStudyQuiz(quiz);
 
   assert.match(response.content, /🎯 \*\*Question 1\/5\*\* · \*Machine learning\*/);
-  assert.match(response.content, /Your answer: B\. Second choice/);
-  assert.match(response.content, /Correct answer: \*\*A\. First choice\*\*/);
+  assert.match(response.content, /\*\*A\. First choice\*\*/);
+  assert.match(response.content, /\*\*Why:\*\* Explanation 1\./);
+  assert.doesNotMatch(response.content, /Your answer:|Correct answer:|Correct!|Not quite/);
   assert.doesNotMatch(response.content, /✅|❌|▫️/);
+  assert.equal(response.components[0].components.length, 1);
 });
 
 test('missed-answer review bolds only the correct choice and uses no check or cross emoji', () => {
@@ -92,6 +94,8 @@ test('missed-answer review bolds only the correct choice and uses no check or cr
   const response = renderStudyQuiz(quiz);
 
   assert.match(response.content, /\*\*A\. First choice\*\*/);
+  assert.match(response.content, /\*\*Why:\*\* Explanation 1\./);
+  assert.doesNotMatch(response.content, /Your answer:|Correct answer:/);
   assert.doesNotMatch(response.content, /✅|❌|▫️/);
 });
 

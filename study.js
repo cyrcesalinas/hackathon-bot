@@ -545,14 +545,11 @@ function getQuestionHeading(quiz, questionIndex) {
 function getReviewContent(quiz) {
   const questionIndex = quiz.reviewIndexes[quiz.reviewIndex];
   const question = quiz.questions[questionIndex];
-  const selectedIndex = quiz.answers[questionIndex];
   return [
     `${getQuestionHeading(quiz, questionIndex)} · Review ${quiz.reviewIndex + 1}/${quiz.reviewIndexes.length}`,
     `Score: ${getScoreLabel(quiz)}`,
     '',
     `**${question.question}**`,
-    '',
-    `Your answer: ${ANSWER_LETTERS[selectedIndex]}. ${question.choices[selectedIndex]}`,
     '',
     formatChoices(question),
     ...(question.explanation ? ['', `**Why:** ${question.explanation}`] : []),
@@ -574,8 +571,6 @@ export function renderStudyQuiz(quiz) {
   }
 
   if (quiz.status === 'feedback') {
-    const selectedIndex = quiz.answers[quiz.questionIndex];
-    const correct = selectedIndex === question.correctIndex;
     const nextLabel = quiz.questionIndex === quiz.questions.length - 1 ? 'See results' : 'Next question';
     return {
       content: [
@@ -583,17 +578,13 @@ export function renderStudyQuiz(quiz) {
         '',
         `**${question.question}**`,
         '',
-        `${correct ? '**Correct!**' : '**Not quite.**'} Your answer: ${ANSWER_LETTERS[selectedIndex]}. ${question.choices[selectedIndex]}`,
-        `Correct answer: **${ANSWER_LETTERS[question.correctIndex]}. ${question.choices[question.correctIndex]}**`,
+        formatChoices(question),
         ...(question.explanation ? ['', `**Why:** ${question.explanation}`] : []),
       ].join('\n'),
-      components: [
-        answerRow(quiz.id, question, quiz.questionIndex, selectedIndex, true),
-        {
-          type: MessageComponentTypes.ACTION_ROW,
-          components: [quizButton(quiz.id, 'next', nextLabel, ButtonStyleTypes.PRIMARY, quiz.questionIndex)],
-        },
-      ],
+      components: [{
+        type: MessageComponentTypes.ACTION_ROW,
+        components: [quizButton(quiz.id, 'next', nextLabel, ButtonStyleTypes.PRIMARY, quiz.questionIndex)],
+      }],
     };
   }
 
