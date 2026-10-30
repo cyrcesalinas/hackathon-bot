@@ -1,15 +1,9 @@
 import 'dotenv/config';
+import { CONTINUATION_INSTRUCTION, DATETIME_SYSTEM_INSTRUCTION } from './prompts.js';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DATETIME_TOOL_TYPE = 'openrouter:datetime';
-const DATETIME_SYSTEM_INSTRUCTION = 'When the request depends on the current date or time, call the openrouter:datetime tool and use its result. Interpret relative dates in the returned timezone. The datetime tool only verifies the current clock; use web research when external facts need verification.';
 const MAX_CONTINUATION_REQUESTS = 2;
-const CONTINUATION_INSTRUCTION = [
-  'Continue the response immediately after the assistant text above.',
-  'Do not repeat or summarize earlier content.',
-  'Complete the unfinished response in the same language and Markdown structure.',
-  'Begin directly with the continuation and do not add an introductory sentence.',
-].join(' ');
 
 function getDateTimeTimezone() {
   const configuredTimezone = process.env.OPENROUTER_DATETIME_TIMEZONE?.trim() || 'America/New_York';

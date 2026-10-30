@@ -17,6 +17,7 @@ Below is a basic overview of the project structure:
 ├── .env.sample -> sample .env file
 ├── app.js      -> main entrypoint for app
 ├── commands.js -> slash command payloads + helpers
+├── prompts.js  -> shared model prompts and prompt builders
 ├── utils.js    -> utility functions and enums
 ├── package.json
 ├── README.md

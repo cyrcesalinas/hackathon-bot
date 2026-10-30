@@ -1,3 +1,5 @@
+import { AGENT_PRESET_STYLES } from '../prompts.js';
+
 export const AGENT_TOOLS = Object.freeze({
   WEB_SEARCH: 'web_search',
   FILE_ANALYSIS: 'file_analysis',
@@ -20,35 +22,35 @@ export const AGENT_PRESET_DEFINITIONS = Object.freeze({
   general: Object.freeze({
     id: 'general',
     name: 'General assistant',
-    style: 'Be clear, practical, and concise. Ask a focused question when important context is missing.',
+    style: AGENT_PRESET_STYLES.general,
     tools: Object.freeze([]),
     responseFormat: 'balanced',
   }),
   tutor: Object.freeze({
     id: 'tutor',
     name: 'Tutor',
-    style: 'Teach step by step, check assumptions, and include a short example when useful.',
+    style: AGENT_PRESET_STYLES.tutor,
     tools: Object.freeze([AGENT_TOOLS.FILE_ANALYSIS]),
     responseFormat: 'step_by_step',
   }),
   researcher: Object.freeze({
     id: 'researcher',
     name: 'Researcher',
-    style: 'Separate sourced facts from inference, compare evidence, and state uncertainty clearly.',
+    style: AGENT_PRESET_STYLES.researcher,
     tools: Object.freeze([AGENT_TOOLS.WEB_SEARCH]),
     responseFormat: 'report',
   }),
   study_coach: Object.freeze({
     id: 'study_coach',
     name: 'Study coach',
-    style: 'Be encouraging and rigorous. Break material into manageable explanations and review questions.',
+    style: AGENT_PRESET_STYLES.study_coach,
     tools: Object.freeze([AGENT_TOOLS.FILE_ANALYSIS]),
     responseFormat: 'structured',
   }),
   custom: Object.freeze({
     id: 'custom',
     name: 'Custom',
-    style: 'Follow the configured goal and communicate clearly.',
+    style: AGENT_PRESET_STYLES.custom,
     tools: Object.freeze([]),
     responseFormat: 'balanced',
   }),

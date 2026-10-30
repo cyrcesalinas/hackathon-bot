@@ -17,9 +17,12 @@ import {
   GatewayIntentBits,
 } from 'discord.js';
 import { getRandomEmoji, DiscordRequest } from './utils.js';
-import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
-import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
-import { getOciSystemPrompt, getOciTopic } from './agents/oci.js';
+import { getOciTopic } from './agents/oci.js';
+import {
+  ASK_SYSTEM_PROMPT,
+  getOciSystemPrompt,
+  RESEARCH_SYSTEM_PROMPT,
+} from './prompts.js';
 import {
   getOpenRouterAnswer,
   getOpenRouterModel,
@@ -33,6 +36,8 @@ import {
   getStudyCommandRequest,
   parseStudyQuizWithRetry,
   renderStudyQuiz,
+  sanitizeStudyGuideMarkdown,
+  validateStudyGuideMarkdown,
   StudyFileError,
   StudyQuizError,
 } from './study.js';
@@ -454,12 +459,17 @@ function handleStudyRequest(res, req, studyRequest) {
   const responseFormatter = studyRequest.name === 'guide'
     ? (answer) => {
       const filename = getStudyGuideFilename(studyRequest);
+      const markdown = sanitizeStudyGuideMarkdown(answer);
+      const validation = validateStudyGuideMarkdown(markdown);
+      if (!validation.valid) {
+        throw new StudyFileError("The generated study guide didn't pass completeness and Markdown checks. Please try again.");
+      }
       return {
         content: `Your complete study guide is attached as \`${filename}\`.`,
         attachment: {
           filename,
           description: 'Full study guide in Markdown format',
-          content: answer,
+          content: markdown,
         },
       };
     }
