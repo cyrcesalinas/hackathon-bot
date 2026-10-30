@@ -2,11 +2,9 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import express from 'express';
 import {
-  ButtonStyleTypes,
   InteractionResponseFlags,
   InteractionResponseType,
   InteractionType,
-  MessageComponentTypes,
   verifyKeyMiddleware,
 } from 'discord-interactions';
 import {
@@ -53,8 +51,28 @@ import {
   AGENT_PRESET_DEFINITIONS,
   AGENT_RESPONSE_FORMATS,
   AGENT_TOOL_DEFINITIONS,
+  AGENT_TOOLS,
   AGENT_VISIBILITIES,
 } from './agents/agent-config.js';
+import {
+  AGENT_UI_MODAL_PREFIX,
+  AGENT_UI_PREFIX,
+  buildAgentBrowserData,
+  buildAgentDeleteData,
+  buildAgentDetailData,
+  buildAgentDraftData,
+  buildAgentHomeData,
+  buildAgentProfileModal,
+  buildAgentRunModal,
+  buildAgentSearchModal,
+  createAgentUiSession,
+  deleteAgentUiSession,
+  getAgentUiSession,
+  getModalValue,
+  getSelectedAgent,
+  parseAgentUiCustomId,
+  setAgentUiAgents,
+} from './agent-ui.js';
 import { AdbCatalogScanError, scanAdbCatalog } from './db/catalog-scan.js';
 import { closeAgentStorePool, isAgentStoreConfigured } from './db/agent-store.js';
 import { checkAdbConnection, closeAdbPool, isAdbConfigured } from './db/connection.js';
@@ -69,14 +87,11 @@ const recentAdbQueriesByUser = new Map();
 let recentAdbQueriesGlobal = [];
 const recentAgentRunsByUser = new Map();
 let recentAgentRunsGlobal = [];
-const pendingAgentDrafts = new Map();
 
 const ADB_REQUESTS_PER_USER_PER_MINUTE = 5;
 const ADB_REQUESTS_GLOBAL_PER_MINUTE = 30;
 const AGENT_RUNS_PER_USER_PER_MINUTE = 5;
 const AGENT_RUNS_GLOBAL_PER_MINUTE = 30;
-const AGENT_DRAFT_TTL_MS = 10 * 60_000;
-const AGENT_DRAFT_LIMIT = 200;
 const STUDY_QUIZ_TTL_MS = 30 * 60_000;
 const STUDY_QUIZ_LIMIT = 100;
 const pendingStudyQuizzes = new Map();
@@ -547,52 +562,6 @@ function isAgentRunRateLimited(userId) {
   return false;
 }
 
-function deferAgentOperation(res, req, operation, operationName, failureMessage) {
-  res.send({
-    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { flags: InteractionResponseFlags.EPHEMERAL },
-  });
-
-  setImmediate(async () => {
-    let response;
-    try {
-      const result = await operation();
-      response = typeof result === 'string'
-        ? { content: limitDiscordMessage(result) }
-        : result;
-    } catch (error) {
-      if (error?.userMessage) {
-        response = { content: error.userMessage };
-      } else {
-        console.error(`${operationName} failed:`, error?.code ?? error?.name ?? 'unknown error');
-        response = { content: failureMessage };
-      }
-    }
-
-    try {
-      await updateInteractionResponse(
-        req.body.application_id,
-        req.body.token,
-        response.content,
-        response.components,
-        response.attachment,
-      );
-    } catch (error) {
-      console.error(`Could not update the Discord ${operationName} response:`, error.message);
-    }
-  });
-}
-
-function cleanExpiredAgentDrafts() {
-  const now = Date.now();
-  for (const [draftId, draft] of pendingAgentDrafts) {
-    if (draft.expiresAt <= now) pendingAgentDrafts.delete(draftId);
-  }
-  while (pendingAgentDrafts.size >= AGENT_DRAFT_LIMIT) {
-    pendingAgentDrafts.delete(pendingAgentDrafts.keys().next().value);
-  }
-}
-
 function formatAgentSummary(agent, { showOwner = false } = {}) {
   const preset = AGENT_PRESET_DEFINITIONS[agent.preset]?.name ?? 'Custom';
   const tools = agent.tools
@@ -629,134 +598,357 @@ function handleAgentCommand(res, req) {
       data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'I could not identify your Discord account.' },
     });
   }
+  const session = createAgentUiSession(userId);
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.EPHEMERAL,
+      allowed_mentions: { parse: [] },
+      ...buildAgentHomeData(session),
+    },
+  });
+}
 
-  const options = req.body.data.options ?? [];
-  const action = getOptionValue(options, 'action');
+function sendAgentUiUpdate(res, data) {
+  return res.send({
+    type: InteractionResponseType.UPDATE_MESSAGE,
+    data: { ...data, allowed_mentions: { parse: [] } },
+  });
+}
 
-  if (action === 'create') {
-    let profile;
+function sendExpiredAgentUi(res) {
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.EPHEMERAL,
+      content: 'This Agent Center session expired. Run /agent again to start a new one.',
+    },
+  });
+}
+
+function deferAgentUiUpdate(res, req, operation, operationName, fallbackData) {
+  res.send({ type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE });
+  setImmediate(async () => {
+    let response;
     try {
-      profile = validateNewAgent({
-        ownerUserId: userId,
-        name: getOptionValue(options, 'name'),
-        goal: getOptionValue(options, 'goal'),
-        style: getOptionValue(options, 'style'),
-        preset: getOptionValue(options, 'preset'),
-        webSearch: getOptionValue(options, 'web_search'),
-        fileAnalysis: getOptionValue(options, 'file_analysis'),
-        responseFormat: getOptionValue(options, 'response_format'),
-        language: getOptionValue(options, 'language'),
-      });
+      response = await operation();
     } catch (error) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          flags: InteractionResponseFlags.EPHEMERAL,
-          content: error?.userMessage ?? 'I could not create that agent draft.',
-        },
-      });
+      console.error(`${operationName} failed:`, error?.code ?? error?.name ?? 'unknown error');
+      response = fallbackData;
     }
+    try {
+      await updateInteractionResponse(
+        req.body.application_id,
+        req.body.token,
+        response.content,
+        response.components,
+      );
+    } catch (error) {
+      console.error(`Could not update the Discord ${operationName} response:`, error.message);
+    }
+  });
+}
 
-    cleanExpiredAgentDrafts();
-    const draftId = randomUUID();
-    pendingAgentDrafts.set(draftId, {
-      ownerUserId: userId,
-      profile,
-      expiresAt: Date.now() + AGENT_DRAFT_TTL_MS,
-    });
+function setDraftTool(draft, tool, enabled) {
+  const tools = new Set(draft.tools);
+  if (enabled) tools.add(tool);
+  else tools.delete(tool);
+  draft.tools = [...tools];
+}
 
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        flags: InteractionResponseFlags.EPHEMERAL,
-        allowed_mentions: { parse: [] },
-        content: `Preview your agent\n\n${formatAgentSummary(profile)}\n\nIts name must be unique, and anyone who uses the bot will be able to run it. It will use the bot's configured OpenRouter model. Save it, then choose Run an agent from /agent.`,
-        components: [
-          {
-            type: MessageComponentTypes.ACTION_ROW,
-            components: [
-              {
-                type: MessageComponentTypes.BUTTON,
-                custom_id: `agent_save:${draftId}`,
-                label: 'Save agent',
-                style: ButtonStyleTypes.PRIMARY,
-              },
-              {
-                type: MessageComponentTypes.BUTTON,
-                custom_id: `agent_cancel:${draftId}`,
-                label: 'Cancel',
-                style: ButtonStyleTypes.SECONDARY,
-              },
-            ],
-          },
-        ],
-      },
-    });
+function validateAgentDraft(draft) {
+  return validateNewAgent({
+    ownerUserId: draft.ownerUserId,
+    name: draft.name,
+    goal: draft.goal,
+    style: draft.style,
+    preset: draft.preset,
+    webSearch: draft.tools.includes(AGENT_TOOLS.WEB_SEARCH),
+    fileAnalysis: draft.tools.includes(AGENT_TOOLS.FILE_ANALYSIS),
+    responseFormat: draft.responseFormat,
+    language: draft.language,
+  });
+}
+
+function getSingleAgentModalValue(data, customId) {
+  const value = getModalValue(data, customId);
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function handleAgentUiComponent(res, req, componentId) {
+  const parsed = parseAgentUiCustomId(componentId);
+  const userId = getDiscordUserId(req);
+  const session = parsed && userId ? getAgentUiSession(parsed.sessionId, userId) : null;
+  if (!session) return sendExpiredAgentUi(res);
+
+  const { action } = parsed;
+  if (action === 'home') return sendAgentUiUpdate(res, buildAgentHomeData(session));
+  if (action === 'close') {
+    deleteAgentUiSession(session.id);
+    return sendAgentUiUpdate(res, { content: 'Agent Center closed.', components: [] });
   }
-
-  if (action === 'list' || action === 'browse' || action === 'shared') {
-    return deferAgentOperation(
+  if (action === 'create') {
+    return res.send({ type: InteractionResponseType.MODAL, data: buildAgentProfileModal(session) });
+  }
+  if (action === 'browse') {
+    return deferAgentUiUpdate(
       res,
       req,
       async () => {
-        const agents = await listAvailableAgents();
-        if (!agents.length) return 'No agents have been created yet. Start with /agent and choose Create agent.';
-
-        const ownedAgents = agents.filter((agent) => agent.ownerUserId === userId);
-        const otherAgents = agents.filter((agent) => agent.ownerUserId !== userId);
-        const ownedSection = ownedAgents.length
-          ? ownedAgents.map(formatAgentSummary).join('\n\n')
-          : 'You have not created any agents yet.';
-        const otherSection = otherAgents.length
-          ? otherAgents.map((agent) => formatAgentSummary(agent, { showOwner: true })).join('\n\n')
-          : 'No agents created by other users yet.';
-
-        const directory = [
-          `## Your agents (${ownedAgents.length})`,
-          ownedSection,
-          `## Agents created by others (${otherAgents.length})`,
-          otherSection,
-        ].join('\n\n');
-        return prepareDiscordResponse(directory, {
-          title: 'Agent directory',
-          filename: 'agent-directory.md',
-          description: 'Agents grouped by ownership in Markdown format',
-        });
+        setAgentUiAgents(session, await listAvailableAgents());
+        return buildAgentBrowserData(session);
       },
-      '/agent list',
-      'I could not load the agents right now. Please try again shortly.',
+      '/agent browse',
+      { content: 'I could not load the agents right now. Please try again shortly.', components: buildAgentHomeData(session).components },
     );
   }
-
-  if (action === 'share' || action === 'unshare') {
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        flags: InteractionResponseFlags.EPHEMERAL,
-        content: 'Sharing controls are no longer needed. Every saved agent is available to everyone who uses the bot.',
-      },
-    });
+  if (action === 'previous' || action === 'next') {
+    session.page += action === 'previous' ? -1 : 1;
+    return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+  }
+  if (action === 'search') {
+    return res.send({ type: InteractionResponseType.MODAL, data: buildAgentSearchModal(session) });
+  }
+  if (action === 'clear_search') {
+    session.query = '';
+    session.page = 0;
+    return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+  }
+  if (action === 'select') {
+    session.selectedAgentId = req.body.data.values?.[0] ?? null;
+    const agent = getSelectedAgent(session);
+    if (!agent) return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+    return sendAgentUiUpdate(res, buildAgentDetailData(
+      session,
+      agent,
+      formatAgentSummary(agent, { showOwner: true }),
+    ));
   }
 
+  const agent = getSelectedAgent(session);
+  if (!agent && ['detail', 'run', 'test', 'edit', 'delete', 'delete_confirm'].includes(action)) {
+    return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+  }
+  if (action === 'detail') {
+    return sendAgentUiUpdate(res, buildAgentDetailData(
+      session,
+      agent,
+      formatAgentSummary(agent, { showOwner: true }),
+    ));
+  }
   if (action === 'run' || action === 'test') {
-    const isTest = action === 'test';
-    const name = getOptionValue(options, 'name');
-    const task = getOptionValue(options, 'task');
-    const attachmentId = getOptionValue(options, 'file');
-    if (typeof name !== 'string' || !name.trim() || typeof task !== 'string' || !task.trim()) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'Choose one of your agents and enter a task.' },
-      });
+    if (action === 'test' && agent.ownerUserId !== userId) {
+      return sendAgentUiUpdate(res, buildAgentDetailData(
+        session,
+        agent,
+        formatAgentSummary(agent, { showOwner: true }),
+        'Only the creator can privately test this agent.',
+      ));
     }
     if (!isOpenRouterConfigured()) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          flags: InteractionResponseFlags.EPHEMERAL,
-          content: 'Configure OPENROUTER_API_KEY and OPENROUTER_MODEL on the bot host first.',
-        },
+      return sendAgentUiUpdate(res, buildAgentDetailData(
+        session,
+        agent,
+        formatAgentSummary(agent, { showOwner: true }),
+        'OpenRouter is not configured on the bot host.',
+      ));
+    }
+    return res.send({
+      type: InteractionResponseType.MODAL,
+      data: buildAgentRunModal(session, agent, action),
+    });
+  }
+  if (action === 'edit') {
+    if (agent.ownerUserId !== userId) return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+    return res.send({
+      type: InteractionResponseType.MODAL,
+      data: buildAgentProfileModal(session, { agent, mode: 'edit' }),
+    });
+  }
+  if (action === 'delete') {
+    if (agent.ownerUserId !== userId) return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+    return sendAgentUiUpdate(res, buildAgentDeleteData(session, agent));
+  }
+  if (action === 'delete_confirm') {
+    if (agent.ownerUserId !== userId) return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+    return deferAgentUiUpdate(
+      res,
+      req,
+      async () => {
+        await removeAgent(userId, agent.name);
+        setAgentUiAgents(session, session.agents.filter((candidate) => candidate.id !== agent.id));
+        const browser = buildAgentBrowserData(session);
+        return { ...browser, content: `> Deleted **${agent.name}**.\n\n${browser.content}` };
+      },
+      '/agent delete',
+      buildAgentDetailData(
+        session,
+        agent,
+        formatAgentSummary(agent, { showOwner: true }),
+        'I could not delete that agent right now. Please try again shortly.',
+      ),
+    );
+  }
+  if (action === 'draft_response' || action === 'draft_language') {
+    if (!session.draft) return sendAgentUiUpdate(res, buildAgentHomeData(session));
+    const value = req.body.data.values?.[0];
+    if (action === 'draft_response' && Object.hasOwn(AGENT_RESPONSE_FORMATS, value)) {
+      session.draft.responseFormat = value;
+    }
+    if (action === 'draft_language' && Object.hasOwn(AGENT_LANGUAGES, value)) {
+      session.draft.language = value;
+    }
+    return sendAgentUiUpdate(res, buildAgentDraftData(session, formatAgentSummary(session.draft)));
+  }
+  if (action === 'toggle_web' || action === 'toggle_file') {
+    if (!session.draft) return sendAgentUiUpdate(res, buildAgentHomeData(session));
+    const tool = action === 'toggle_web' ? AGENT_TOOLS.WEB_SEARCH : AGENT_TOOLS.FILE_ANALYSIS;
+    setDraftTool(session.draft, tool, !session.draft.tools.includes(tool));
+    return sendAgentUiUpdate(res, buildAgentDraftData(session, formatAgentSummary(session.draft)));
+  }
+  if (action === 'draft_edit_profile') {
+    if (!session.draft) return sendAgentUiUpdate(res, buildAgentHomeData(session));
+    return res.send({
+      type: InteractionResponseType.MODAL,
+      data: buildAgentProfileModal(session, {
+        agent: session.draft,
+        mode: session.draftMode,
+      }),
+    });
+  }
+  if (action === 'draft_cancel') {
+    const wasEditing = session.draftMode === 'edit';
+    session.draft = null;
+    session.draftMode = null;
+    session.editingAgentName = null;
+    return sendAgentUiUpdate(
+      res,
+      wasEditing && agent
+        ? buildAgentDetailData(session, agent, formatAgentSummary(agent, { showOwner: true }))
+        : buildAgentHomeData(session),
+    );
+  }
+  if (action === 'draft_save') {
+    if (!session.draft) return sendAgentUiUpdate(res, buildAgentHomeData(session));
+    if (session.busy) {
+      return sendAgentUiUpdate(res, buildAgentDraftData(
+        session,
+        formatAgentSummary(session.draft),
+        'This agent is already being saved.',
+      ));
+    }
+    session.busy = true;
+    return deferAgentUiUpdate(res, req, async () => {
+      try {
+        const profile = validateAgentDraft(session.draft);
+        const saved = session.draftMode === 'edit'
+          ? await editAgent(userId, session.editingAgentName, {
+            name: profile.name,
+            goal: profile.goal,
+            style: profile.style,
+            preset: profile.preset,
+            webSearch: profile.tools.includes(AGENT_TOOLS.WEB_SEARCH),
+            fileAnalysis: profile.tools.includes(AGENT_TOOLS.FILE_ANALYSIS),
+            responseFormat: profile.responseFormat,
+            language: profile.language,
+          })
+          : await saveNewAgent(profile);
+        setAgentUiAgents(session, [
+          ...session.agents.filter((candidate) => candidate.id !== saved.id),
+          saved,
+        ]);
+        session.selectedAgentId = saved.id;
+        session.draft = null;
+        session.draftMode = null;
+        session.editingAgentName = null;
+        return buildAgentDetailData(
+          session,
+          saved,
+          formatAgentSummary(saved, { showOwner: true }),
+          `Saved **${saved.name}**. Anyone using the bot can now run it.`,
+        );
+      } catch (error) {
+        if (error instanceof AgentCommandError) {
+          return buildAgentDraftData(session, formatAgentSummary(session.draft), error.userMessage);
+        }
+        throw error;
+      } finally {
+        session.busy = false;
+      }
+    }, '/agent save', buildAgentDraftData(
+      session,
+      formatAgentSummary(session.draft),
+      'I could not save that agent right now. Please try again shortly.',
+    ));
+  }
+
+  return res.status(400).json({ error: 'unknown agent component' });
+}
+
+function handleAgentUiModal(res, req, customId) {
+  const parsed = parseAgentUiCustomId(customId, AGENT_UI_MODAL_PREFIX);
+  const userId = getDiscordUserId(req);
+  const session = parsed && userId ? getAgentUiSession(parsed.sessionId, userId) : null;
+  if (!session) return sendExpiredAgentUi(res);
+
+  const { action } = parsed;
+  if (action === 'search_submit') {
+    session.query = String(getSingleAgentModalValue(req.body.data, 'agent_search') ?? '').trim();
+    session.page = 0;
+    return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+  }
+
+  if (action === 'create_submit' || action === 'edit_submit') {
+    const editing = action === 'edit_submit';
+    const current = editing ? getSelectedAgent(session) : null;
+    if (editing && (!current || current.ownerUserId !== userId)) {
+      return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+    }
+    try {
+      const preset = getSingleAgentModalValue(req.body.data, 'agent_preset');
+      const styleValue = String(getSingleAgentModalValue(req.body.data, 'agent_style') ?? '').trim();
+      const baseProfile = session.draft ?? current;
+      const keepExistingOptions = Boolean(baseProfile && preset === baseProfile.preset);
+      session.draft = validateNewAgent({
+        ownerUserId: userId,
+        name: getSingleAgentModalValue(req.body.data, 'agent_name'),
+        goal: getSingleAgentModalValue(req.body.data, 'agent_goal'),
+        style: styleValue || undefined,
+        preset,
+        webSearch: keepExistingOptions
+          ? baseProfile.tools.includes(AGENT_TOOLS.WEB_SEARCH)
+          : undefined,
+        fileAnalysis: keepExistingOptions
+          ? baseProfile.tools.includes(AGENT_TOOLS.FILE_ANALYSIS)
+          : undefined,
+        responseFormat: keepExistingOptions ? baseProfile.responseFormat : undefined,
+        language: baseProfile?.language ?? 'auto',
       });
+      session.draftMode = editing ? 'edit' : 'create';
+      session.editingAgentName = editing ? current.name : null;
+      return sendAgentUiUpdate(res, buildAgentDraftData(
+        session,
+        formatAgentSummary(session.draft),
+      ));
+    } catch (error) {
+      return sendAgentUiUpdate(res, {
+        ...buildAgentHomeData(session),
+        content: `> ${error?.userMessage ?? 'I could not prepare that agent.'}\n\n${buildAgentHomeData(session).content}`,
+      });
+    }
+  }
+
+  if (action === 'run_submit' || action === 'test_submit') {
+    const isTest = action === 'test_submit';
+    const selected = getSelectedAgent(session);
+    if (!selected) return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+    if (isTest && selected.ownerUserId !== userId) {
+      return sendAgentUiUpdate(res, buildAgentDetailData(
+        session,
+        selected,
+        formatAgentSummary(selected, { showOwner: true }),
+        'Only the creator can privately test this agent.',
+      ));
     }
     if (isAgentRunRateLimited(userId)) {
       return res.send({
@@ -767,20 +959,27 @@ function handleAgentCommand(res, req) {
         },
       });
     }
-
+    const task = getSingleAgentModalValue(req.body.data, 'agent_task');
+    const attachmentValue = getModalValue(req.body.data, 'agent_file');
+    const attachmentId = Array.isArray(attachmentValue) ? attachmentValue[0] : undefined;
     return deferOpenRouterCommand(
       res,
       req,
       async () => {
-        const agent = isTest
-          ? await requireOwnedAgent(userId, name.trim())
-          : await requireRunnableAgent(name.trim());
+        const runnable = isTest
+          ? await requireOwnedAgent(userId, selected.name)
+          : await requireRunnableAgent(selected.name);
         return {
-          ...(await buildUserAgentRequest(agent, task, attachmentId, req.body.data.resolved?.attachments)),
+          ...(await buildUserAgentRequest(
+            runnable,
+            task,
+            attachmentId,
+            req.body.data.resolved?.attachments,
+          )),
           responseDelivery: {
-            title: `${agent.name} completed your request`,
-            filename: `${agent.name}-response.md`,
-            description: `Complete response from ${agent.name} in Markdown format`,
+            title: `${runnable.name} completed your request`,
+            filename: `${runnable.name}-response.md`,
+            description: `Complete response from ${runnable.name} in Markdown format`,
           },
         };
       },
@@ -793,135 +992,7 @@ function handleAgentCommand(res, req) {
     );
   }
 
-  if (action === 'edit') {
-    const name = getOptionValue(options, 'name');
-    const patch = {};
-    const newName = getOptionValue(options, 'new_name');
-    const goal = getOptionValue(options, 'goal');
-    const style = getOptionValue(options, 'style');
-    const preset = getOptionValue(options, 'preset');
-    const webSearch = getOptionValue(options, 'web_search');
-    const fileAnalysis = getOptionValue(options, 'file_analysis');
-    const responseFormat = getOptionValue(options, 'response_format');
-    const language = getOptionValue(options, 'language');
-    if (newName !== undefined) patch.name = newName;
-    if (goal !== undefined) patch.goal = goal;
-    if (style !== undefined) patch.style = style;
-    if (preset !== undefined) patch.preset = preset;
-    if (webSearch !== undefined) patch.webSearch = webSearch;
-    if (fileAnalysis !== undefined) patch.fileAnalysis = fileAnalysis;
-    if (responseFormat !== undefined) patch.responseFormat = responseFormat;
-    if (language !== undefined) patch.language = language;
-    if (typeof name !== 'string' || !name.trim()) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'Enter the current name of your agent.' },
-      });
-    }
-    return deferAgentOperation(
-      res,
-      req,
-      async () => `Updated your agent:\n\n${formatAgentSummary(await editAgent(userId, name.trim(), patch))}`,
-      '/agent edit',
-      'I could not update that agent right now. Please try again shortly.',
-    );
-  }
-
-  if (action === 'delete') {
-    const name = getOptionValue(options, 'name');
-    if (typeof name !== 'string' || !name.trim()) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'Enter the name of your agent.' },
-      });
-    }
-    return deferAgentOperation(
-      res,
-      req,
-      async () => {
-        await removeAgent(userId, name.trim());
-        return `Deleted your agent "${name.trim()}".`;
-      },
-      '/agent delete',
-      'I could not delete that agent right now. Please try again shortly.',
-    );
-  }
-
-  return res.send({
-    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: {
-      flags: InteractionResponseFlags.EPHEMERAL,
-      content: 'Choose an action under /agent: Create, Delete, Edit, List, Run, or Test an agent.',
-    },
-  });
-}
-
-function handleAgentDraftButton(res, req, componentId) {
-  const separator = componentId.indexOf(':');
-  const action = componentId.slice(0, separator);
-  const draftId = componentId.slice(separator + 1);
-  const draft = pendingAgentDrafts.get(draftId);
-  const userId = getDiscordUserId(req);
-
-  if (!draft || draft.expiresAt <= Date.now()) {
-    pendingAgentDrafts.delete(draftId);
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'That agent preview expired. Create it again to continue.' },
-    });
-  }
-  if (draft.ownerUserId !== userId) {
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'Only the student who created this preview can save it.' },
-    });
-  }
-
-  if (action === 'agent_cancel') {
-    if (draft.saving) {
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'The agent is being saved. Please wait for that response.' },
-      });
-    }
-    pendingAgentDrafts.delete(draftId);
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'Agent creation cancelled.' },
-    });
-  }
-
-  if (action !== 'agent_save') {
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'That agent action is not available.' },
-    });
-  }
-
-  if (draft.saving) {
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: { flags: InteractionResponseFlags.EPHEMERAL, content: 'This agent is already being saved.' },
-    });
-  }
-  draft.saving = true;
-  return deferAgentOperation(
-    res,
-    req,
-    async () => {
-      try {
-        const agent = await saveNewAgent(draft.profile);
-        pendingAgentDrafts.delete(draftId);
-        return `Saved **${agent.name}**. It is now available for anyone using the bot to run.`;
-      } catch (error) {
-        if (error?.userMessage) pendingAgentDrafts.delete(draftId);
-        else draft.saving = false;
-        throw error;
-      }
-    },
-    '/agent save',
-    'I could not save that agent right now. Please try again shortly.',
-  );
+  return res.status(400).json({ error: 'unknown agent modal' });
 }
 
 function isAdbRateLimited(req) {
@@ -1048,10 +1119,8 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
 
   const isPrivateInteraction =
     (type === InteractionType.APPLICATION_COMMAND && data?.name === 'agent') ||
-    (type === InteractionType.MESSAGE_COMPONENT && (
-      data?.custom_id?.startsWith('agent_save:') ||
-      data?.custom_id?.startsWith('agent_cancel:')
-    ));
+    (type === InteractionType.MESSAGE_COMPONENT && data?.custom_id?.startsWith(AGENT_UI_PREFIX)) ||
+    (type === InteractionType.MODAL_SUBMIT && data?.custom_id?.startsWith(AGENT_UI_MODAL_PREFIX));
   if (
     !isPrivateInteraction &&
     (type === InteractionType.APPLICATION_COMMAND || type === InteractionType.MESSAGE_COMPONENT)
@@ -1285,11 +1354,18 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       return handleLongResponseButton(res, req, componentId);
     }
 
-    if (componentId.startsWith('agent_save:') || componentId.startsWith('agent_cancel:')) {
-      return handleAgentDraftButton(res, req, componentId);
+    if (componentId.startsWith(AGENT_UI_PREFIX)) {
+      return handleAgentUiComponent(res, req, componentId);
     }
 
     return res.status(400).json({ error: 'unknown component' });
+  }
+
+  if (type === InteractionType.MODAL_SUBMIT) {
+    if (data.custom_id?.startsWith(AGENT_UI_MODAL_PREFIX)) {
+      return handleAgentUiModal(res, req, data.custom_id);
+    }
+    return res.status(400).json({ error: 'unknown modal' });
   }
 
   console.error('unknown interaction type', type);
