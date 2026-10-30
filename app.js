@@ -1047,7 +1047,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
   }
 
   const isPrivateInteraction =
-    (type === InteractionType.APPLICATION_COMMAND && ['agent', 'db'].includes(data?.name)) ||
+    (type === InteractionType.APPLICATION_COMMAND && data?.name === 'agent') ||
     (type === InteractionType.MESSAGE_COMPONENT && (
       data?.custom_id?.startsWith('agent_save:') ||
       data?.custom_id?.startsWith('agent_cancel:')

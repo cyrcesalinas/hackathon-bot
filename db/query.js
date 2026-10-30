@@ -1,4 +1,5 @@
 import { ADB_QUERY_CATALOG } from './catalog.js';
+import { resolveCatalogEntry } from './catalog-resolver.js';
 import { executeAdbRead } from './connection.js';
 
 const MAX_FILTERS = 5;
@@ -65,7 +66,7 @@ function quoteIdentifier(value) {
 }
 
 function getDataset(datasetId) {
-  const dataset = ADB_QUERY_CATALOG.find((item) => item.id === datasetId);
+  const dataset = resolveCatalogEntry(ADB_QUERY_CATALOG, datasetId);
   if (!dataset) throw new Error('The requested dataset is not approved');
   if (!Array.isArray(dataset.columns) || !dataset.columns.length) {
     throw new Error('The approved dataset has no queryable columns');
@@ -74,7 +75,7 @@ function getDataset(datasetId) {
 }
 
 function getColumn(dataset, columnId) {
-  const column = dataset.columns.find((item) => item.id === columnId);
+  const column = resolveCatalogEntry(dataset.columns, columnId);
   if (!column) throw new Error('The requested column is not approved');
   return column;
 }
@@ -185,12 +186,12 @@ function validatePlan(plan) {
     if (!Array.isArray(plan.columns) || plan.columns.length < 1 || plan.columns.length > MAX_COLUMNS) {
       throw new Error('Invalid selected columns');
     }
-    assertUniqueIds(plan.columns, 'selected columns');
     columns = plan.columns.map((id) => {
       const column = getColumn(dataset, id);
       if (column.selectable !== true) throw new Error('The requested column is not selectable');
       return column;
     });
+    assertUniqueIds(columns.map((column) => column.id), 'selected columns');
 
     if (plan.orderBy) {
       if (typeof plan.orderBy !== 'object' || Array.isArray(plan.orderBy)) {
@@ -209,12 +210,12 @@ function validatePlan(plan) {
     }
     const groupIds = Array.isArray(plan.groupBy) ? plan.groupBy : [];
     if (groupIds.length > MAX_GROUPS) throw new Error('Too many grouping columns');
-    assertUniqueIds(groupIds, 'grouping columns');
     groupBy = groupIds.map((id) => {
       const column = getColumn(dataset, id);
       if (column.groupable !== true) throw new Error('The requested group is not approved');
       return column;
     });
+    assertUniqueIds(groupBy.map((column) => column.id), 'grouping columns');
 
     if (plan.kind === 'sum' || plan.kind === 'avg') {
       measure = getColumn(dataset, plan.measure);
