@@ -39,7 +39,7 @@ test('Agent Center sessions are private to their creator', () => {
   assert.match(home.content, /Agent Center/);
   assert.deepEqual(
     home.components[0].components.map((component) => component.label),
-    ['Create agent', 'Browse agents', 'Close'],
+    ['Run agent', 'Create agent', 'Browse agents', 'Close'],
   );
   assert.equal(getAgentUiSession(session.id, 'owner-1'), session);
   assert.equal(getAgentUiSession(session.id, 'different-user'), null);
@@ -91,6 +91,17 @@ test('browser lists owned agents first and paginates at 25 options', () => {
   assert.match(select.options[0].label, /^★ Your agent/);
   assert.match(browser.content, /Page 1 of 2/);
   assert.equal(browser.components[1].components[1].disabled, false);
+});
+
+test('direct run mode tells the user that selection opens the task form', () => {
+  const session = createAgentUiSession('owner-direct-run');
+  session.directRun = true;
+  setAgentUiAgents(session, [makeAgent('direct')]);
+
+  const browser = buildAgentBrowserData(session);
+
+  assert.match(browser.content, /^## Run an agent/);
+  assert.match(browser.content, /enter its task immediately/);
 });
 
 test('run modal accepts a file only when file analysis is enabled', () => {

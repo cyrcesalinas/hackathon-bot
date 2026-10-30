@@ -682,7 +682,10 @@ function handleAgentUiComponent(res, req, componentId) {
   if (!session) return sendExpiredAgentUi(res);
 
   const { action } = parsed;
-  if (action === 'home') return sendAgentUiUpdate(res, buildAgentHomeData(session));
+  if (action === 'home') {
+    session.directRun = false;
+    return sendAgentUiUpdate(res, buildAgentHomeData(session));
+  }
   if (action === 'close') {
     deleteAgentUiSession(session.id);
     return sendAgentUiUpdate(res, { content: 'Agent Center closed.', components: [] });
@@ -690,7 +693,8 @@ function handleAgentUiComponent(res, req, componentId) {
   if (action === 'create') {
     return res.send({ type: InteractionResponseType.MODAL, data: buildAgentProfileModal(session) });
   }
-  if (action === 'browse') {
+  if (action === 'browse' || action === 'run_browser') {
+    session.directRun = action === 'run_browser';
     return deferAgentUiUpdate(
       res,
       req,
@@ -718,6 +722,19 @@ function handleAgentUiComponent(res, req, componentId) {
     session.selectedAgentId = req.body.data.values?.[0] ?? null;
     const agent = getSelectedAgent(session);
     if (!agent) return sendAgentUiUpdate(res, buildAgentBrowserData(session));
+    if (session.directRun) {
+      if (!isOpenRouterConfigured()) {
+        const browser = buildAgentBrowserData(session);
+        return sendAgentUiUpdate(res, {
+          ...browser,
+          content: `> OpenRouter is not configured on the bot host.\n\n${browser.content}`,
+        });
+      }
+      return res.send({
+        type: InteractionResponseType.MODAL,
+        data: buildAgentRunModal(session, agent, 'run'),
+      });
+    }
     return sendAgentUiUpdate(res, buildAgentDetailData(
       session,
       agent,

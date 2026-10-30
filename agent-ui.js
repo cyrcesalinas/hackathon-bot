@@ -126,6 +126,7 @@ export function createAgentUiSession(ownerUserId) {
     agents: [],
     page: 0,
     query: '',
+    directRun: false,
     selectedAgentId: null,
     draft: null,
     draftMode: null,
@@ -170,12 +171,13 @@ export function buildAgentHomeData(session) {
   return {
     content: [
       '## Agent Center',
-      'Create a new agent or browse every agent available to this bot.',
+      'Run an existing agent, create a new one, or browse every agent available to this bot.',
       'Selecting one of your agents also reveals Test, Edit, and Delete controls.',
     ].join('\n\n'),
     components: [
       actionRow([
-        button(session.id, 'create', 'Create agent', ButtonStyleTypes.PRIMARY),
+        button(session.id, 'run_browser', 'Run agent', ButtonStyleTypes.PRIMARY),
+        button(session.id, 'create', 'Create agent', ButtonStyleTypes.SECONDARY),
         button(session.id, 'browse', 'Browse agents', ButtonStyleTypes.SECONDARY),
         button(session.id, 'close', 'Close', ButtonStyleTypes.SECONDARY),
       ]),
@@ -262,6 +264,8 @@ export function buildAgentRunModal(session, agent, mode = 'run') {
 }
 
 export function buildAgentBrowserData(session) {
+  const directRun = session.directRun === true;
+  const heading = directRun ? '## Run an agent' : '## Browse agents';
   const normalizedQuery = session.query.trim().toLocaleLowerCase();
   const filteredAgents = normalizedQuery
     ? session.agents.filter((agent) =>
@@ -278,7 +282,7 @@ export function buildAgentBrowserData(session) {
   if (!pageAgents.length) {
     return {
       content: [
-        '## Browse agents',
+        heading,
         session.query
           ? `No agents matched **${truncate(session.query, 80)}**.`
           : 'No agents have been created yet.',
@@ -295,9 +299,13 @@ export function buildAgentBrowserData(session) {
 
   return {
     content: [
-      '## Browse agents',
+      heading,
       `Your agents: **${ownedCount}** · Created by others: **${otherCount}**`,
-      session.query ? `Search: **${truncate(session.query, 80)}**` : 'Choose an agent to see its details.',
+      session.query
+        ? `Search: **${truncate(session.query, 80)}**`
+        : directRun
+          ? 'Choose an agent to enter its task immediately.'
+          : 'Choose an agent to see its details.',
       `Page ${session.page + 1} of ${totalPages}`,
     ].join('\n\n'),
     components: [
