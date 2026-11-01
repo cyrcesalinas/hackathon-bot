@@ -1,8 +1,8 @@
 {
-  "name": "discord-getting-started",
+  "name": "hackathon-bot",
   "private": true,
   "version": "1.0.0",
-  "description": "Discord example app",
+  "description": "Discord learning assistant powered by OpenRouter and Oracle Database",
   "main": "app.js",
   "type": "module",
   "engines": {
@@ -16,7 +16,6 @@
     "dev": "nodemon app.js",
     "tunnel": "./bin/ngrok http 3000"
   },
-  "author": "Shay DeWael",
   "license": "MIT",
   "dependencies": {
     "discord-interactions": "^4.0.0",

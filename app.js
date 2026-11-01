@@ -14,7 +14,7 @@ import {
   Events,
   GatewayIntentBits,
 } from 'discord.js';
-import { getRandomEmoji, DiscordRequest } from './utils.js';
+import { DiscordRequest } from './utils.js';
 import { ASK_SYSTEM_PROMPT } from './agents/ask.js';
 import { RESEARCH_SYSTEM_PROMPT } from './agents/research.js';
 import { getOciSystemPrompt, getOciTopic } from './agents/oci.js';
