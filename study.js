@@ -654,7 +654,7 @@ function getFocusTopicsContent(quiz) {
   if (topics.length === 0) return '**Topics to focus on:** None — you got every question right.';
   return [
     '**Topics to focus on:**',
-    ...topics.map(({ topic, count }) => `• ${topic} — ${count} missed ${count === 1 ? 'question' : 'questions'}`),
+    ...topics.map(({ topic, count }) => `• ${topic}`),
   ].join('\n');
 }
 

@@ -11,6 +11,9 @@
   "scripts": {
     "start": "node app.js",
     "register": "node commands.js",
+    "memory:setup": "node scripts/setup-user-memory.js",
+    "memory:check": "node scripts/check-user-memory.js",
+    "memory:agent-check": "node scripts/check-memory-agent.js",
     "test": "node --test",
     "deploy": "npm run register && sudo systemctl restart discord-example.service",
     "dev": "nodemon app.js",

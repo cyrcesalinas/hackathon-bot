@@ -12,24 +12,8 @@ A Discord learning assistant powered by OpenRouter and Oracle Autonomous Databas
 | `/oci` | Learn about the supported Oracle Cloud and AI topics. |
 | `/db` | Check the Oracle connection, discover the approved catalog, or query approved schema data. |
 | `/agent` | Create, browse, test, edit, delete, and run reusable learning agents. |
+| `/memory` | Privately list, delete, or clear your own notes in the current channel. |
 
-<<<<<<< HEAD
-```
-├── examples    -> short, feature-specific sample apps
-│   ├── app.js  -> finished app.js code
-│   ├── button.js
-│   ├── command.js
-│   ├── modal.js
-│   ├── selectMenu.js
-├── .env.sample -> sample .env file
-├── app.js      -> main entrypoint for app
-├── commands.js -> slash command payloads + helpers
-├── prompts.js  -> shared model prompts and prompt builders
-├── utils.js    -> utility functions and enums
-├── package.json
-├── README.md
-└── .gitignore
-=======
 The bot also answers server messages that mention it. Agent runs and follow-up replies are rate limited and keep their continuation context in memory for one hour.
 
 ## Requirements
@@ -48,7 +32,6 @@ git clone https://github.com/cyrcesalinas/hackathon-bot.git
 cd hackathon-bot
 npm ci
 cp .env.sample .env
->>>>>>> 29a47a155f299caefc4b7826d299864aa644ab93
 ```
 
 Fill in `.env` with the credentials for the features you plan to use. Do not commit this file, an Oracle wallet, or wallet archives.
@@ -120,6 +103,50 @@ The schema script creates a new `AGENT_PROFILES` table or upgrades an older one 
 
 Agent profiles are globally discoverable. Only the creator can edit, delete, or privately test an agent. Uploaded files and conversation text are not stored permanently by the agent feature.
 
+### Personal memory in ADB
+
+Memory uses OpenRouter client function tools: the model chooses `remember(note)` or `about_person()` with `tool_choice: auto`; the app validates and executes the request, then returns its matching tool result. Existing web-search and datetime tools remain available. Without a dedicated memory model, the answer model must support function tools together with its requested formatting parameters. Set `OPENROUTER_MEMORY_MODEL` to run memory decisions in a separate function-tool phase using only the original typed input. Confirmed tool results then enter the original answer model as dated, untrusted data; files, web tools and structured exams keep their own request format.
+
+Install the schema **as its owner** using the configured wallet and credentials:
+
+```sh
+npm run memory:setup
+npm run memory:check
+# Optional: uses the configured models and a synthetic user for real tool calls.
+npm run memory:agent-check
+```
+
+The first command applies `db/person-notes-schema.sql` without dropping data. The second creates synthetic notes, checks concurrent deduplication and isolation, deletes its test notes, and checks that `/db` cannot discover the tables. It requires the same runtime privileges as the app. Small scope revision tombstones remain to prevent delayed writes from undoing deletion.
+
+For a separate owner/runtime account, use owner credentials for setup, then grant the runtime user these permissions and switch to its credentials:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON PERSON_NOTES TO BOT_MEMORY_APP;
+GRANT SELECT, INSERT, UPDATE, DELETE ON PERSON_NOTE_SCOPES TO BOT_MEMORY_APP;
+```
+
+Do not grant memory-table access to the `/db` account. The app also excludes memory tables from metadata discovery, query-plan validation, and SQL execution. Existing views or synonyms that expose private tables must not be granted to the `/db` account.
+
+```env
+USER_MEMORY_ENABLED=true
+OPENROUTER_MEMORY_MODEL=your_tested_function_model
+USER_MEMORY_USER=BOT_MEMORY_APP
+USER_MEMORY_PASSWORD=your_memory_store_password
+USER_MEMORY_OWNER=BOT_MEMORY_OWNER
+```
+
+The account defaults to `AGENT_STORE_USER` and then `ADB_USER`; the owner defaults to `AGENT_STORE_OWNER` and then the memory account. Shared credentials are supported for development; separate accounts enforce the database boundary in production. Register commands and restart the bot after enabling memory.
+
+Each `PERSON_NOTES` row stores its ID, Discord user, guild (`@dm` for private conversations), exact channel, note, source message/interaction ID, source type, and Oracle timestamp. Discord IDs remain strings. `remember` accepts **only** a note: all identity and provenance fields come from the Discord event, never from the model. Individual DMs and group DMs stay separate because their channel IDs differ. Notes never cross channels, servers, or users.
+
+The original typed inputs to `/ask`, `/research`, `/study`, `/oci`, `/agent` runs/tests, bot mentions and agent follow-ups are eligible. Files, profiles, earlier assistant answers, quiz clicks, `/db` planning and web results are excluded as evidence. The model saves durable direct self-disclosures automatically when useful. Each note must start with `The user`, `This user`, `La persona`, `El usuario` or `La usuaria`, in third person and at most **499 Unicode code points**. Conservative source checks reject secrets, quotations, third-party attribution and inputs without a self-disclosure. A separate tool-free validation request checks grounding, durability, third person and safety before a write. Its JSON verdict is parsed strictly by the server, so provider JSON-mode support is optional. Ambiguous inputs can therefore be intentionally skipped; these checks do not guarantee perfect semantic classification.
+
+`about_person()` reads the **latest 40 notes**, ordered by creation time and ID. The complete history remains until deleted; older notes are not retrieved by this tool. Retries of the same normalized note from the same source message or interaction are not reinserted. A later self-disclosure can reaffirm an older preference while preserving the order of corrections. Notes are dated data, never instructions; a newer explicit correction takes precedence. Use `/memory action:list` to inspect notes, `/memory action:delete id:...` to delete an outdated note, or `/memory action:clear` to erase all your notes **in the current channel**. These operations and attached exports are private. Other users cannot manage your notes.
+
+There are at most two write attempts per turn, four tool rounds and eight tool executions with a shared deadline. Formatting repairs and response continuations cannot repeat memory effects. Writes hold a scope lock; deletion changes its revision so a pending request cannot recreate forgotten notes. Commit failures report an uncertain outcome rather than a successful save. If memory is unavailable, the app answers without memory tools. Requests carrying memory use `provider.data_collection: deny` and `require_parameters: true`, including the validation request. The memory model is independently configurable; the live agent check verifies actual function calls rather than relying only on advertised model capabilities. These options are not a guarantee of zero retention by every service. Logs omit note contents and provider error bodies.
+
+OpenRouter reference: [Client tools and tool calling](https://openrouter.ai/docs/guides/features/tool-calling).
+
 ## Register and run
 
 Register the slash commands after configuring Discord credentials:
@@ -157,7 +184,7 @@ The remote workflow currently expects the checkout at `/home/opc/discord-example
 
 - `/ask`, `/research`, `/study`, `/oci`, and agent prompts send request content to OpenRouter.
 - Study and agent attachments are processed for the current request and are not saved by this repository.
-- Agent profiles persist in Oracle; conversation continuations and quiz state stay in process memory and disappear on restart.
+- Agent profiles and enabled personal memory persist in Oracle; conversation continuations and quiz state stay in process memory and disappear on restart.
 - `/db` sends the user's question and schema catalog to OpenRouter, then validates and executes a read-only query plan locally. Database rows are not sent back to OpenRouter.
 - Learning command responses, `/db` responses, and normal agent runs are public in server channels. Agent setup, management, and private tests use ephemeral responses.
 

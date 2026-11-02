@@ -1,6 +1,7 @@
 import { ADB_QUERY_CATALOG } from './catalog.js';
 import { resolveCatalogEntry } from './catalog-resolver.js';
 import { executeAdbRead } from './connection.js';
+import { isPrivateTable } from './protected-tables.js';
 
 const MAX_FILTERS = 5;
 const MAX_COLUMNS = 8;
@@ -37,7 +38,7 @@ export function hasAdbQueryCatalog() {
 }
 
 export function getPublicAdbCatalog() {
-  return ADB_QUERY_CATALOG.map((dataset) => ({
+  return ADB_QUERY_CATALOG.filter((dataset) => !isPrivateTable(dataset.source?.name)).map((dataset) => ({
     id: dataset.id,
     label: dataset.label,
     description: dataset.description,
@@ -68,6 +69,7 @@ function quoteIdentifier(value) {
 function getDataset(datasetId) {
   const dataset = resolveCatalogEntry(ADB_QUERY_CATALOG, datasetId);
   if (!dataset) throw new Error('The requested dataset is not approved');
+  if (isPrivateTable(dataset.source?.name)) throw new Error('The requested dataset is private');
   if (!Array.isArray(dataset.columns) || !dataset.columns.length) {
     throw new Error('The approved dataset has no queryable columns');
   }

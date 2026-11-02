@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import oracledb from 'oracledb';
+import { assertPublicSql } from './protected-tables.js';
 
 const ADB_POOL_ALIAS = 'discord-bot-adb';
 let poolPromise;
@@ -42,6 +43,7 @@ export async function getAdbPool() {
 }
 
 export async function executeAdbRead(sql, binds, maxRows) {
+  assertPublicSql(sql);
   if (
     typeof sql !== 'string' ||
     !/^\s*SELECT\b/i.test(sql) ||

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { InstallGlobalCommands, RemoveGlobalCommands } from './utils.js';
 import { OCI_TOPICS } from './agents/oci.js';
+import { MEMORY_COMMAND } from './memory-command.js';
 
 // Ask an LLM a question using OpenRouter
 const ASK_COMMAND = {
@@ -137,6 +138,7 @@ const ALL_COMMANDS = [
   STUDY_COMMAND,
   OCI_COMMAND,
   AGENT_COMMAND,
+  MEMORY_COMMAND,
 ];
 
 try {

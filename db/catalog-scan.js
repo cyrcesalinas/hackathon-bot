@@ -1,5 +1,6 @@
 import { ADB_QUERY_CATALOG, replaceAdbQueryCatalog } from './catalog.js';
 import { executeAdbRead } from './connection.js';
+import { isPrivateTable, PRIVATE_TABLES } from './protected-tables.js';
 
 const IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9_$#]{0,127}$/;
 const MAX_METADATA_ROWS = 5001;
@@ -71,6 +72,7 @@ function buildAutoCatalog(objects) {
   const catalog = [];
 
   for (const object of objects) {
+    if (isPrivateTable(object.name)) continue;
     if (!IDENTIFIER_PATTERN.test(object.name)) continue;
     const columnIds = new Set();
     const columns = object.columns
@@ -123,9 +125,10 @@ async function loadCatalogMetadata() {
         AND c.TABLE_NAME = o.OBJECT_NAME
       WHERE o.OBJECT_TYPE IN ('TABLE', 'VIEW')
         AND o.OWNER = :owner
+        AND o.OBJECT_NAME NOT IN (${PRIVATE_TABLES.map((_name, index) => `:private${index}`).join(', ')})
       ORDER BY o.OBJECT_TYPE, o.OBJECT_NAME, c.COLUMN_ID
       FETCH FIRST ${MAX_METADATA_ROWS} ROWS ONLY`,
-    { owner },
+    { owner, ...Object.fromEntries(PRIVATE_TABLES.map((name, index) => [`private${index}`, name])) },
     MAX_METADATA_ROWS,
   );
 
@@ -185,6 +188,7 @@ export async function scanAdbCatalog() {
 }
 
 export function formatAdbCatalogScan(owner, objects) {
+  objects = objects.filter((object) => !isPrivateTable(object.name));
   const visibleObjects = objects.slice(0, MAX_VISIBLE_OBJECTS);
   const lines = [`**Database catalog — ${owner}**`];
 

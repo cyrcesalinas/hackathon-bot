@@ -15,6 +15,10 @@ import {
   GatewayIntentBits,
 } from 'discord.js';
 import { DiscordRequest } from './utils.js';
+import { eligibleMemoryInput, withDiscordMemory } from './user-memory.js';
+import { isMemoryCommand, runMemoryCommand } from './memory-command.js';
+import { closePersonNotesPool } from './db/person-notes.js';
+import { keepsInteractionPrivate } from './interaction-privacy.js';
 import { getOciTopic } from './agents/oci.js';
 import {
   ASK_SYSTEM_PROMPT,
@@ -234,7 +238,7 @@ async function handleAgentConversationReply(message, conversation, prompt) {
 
   try {
     await message.channel.sendTyping().catch(() => {});
-    const request = await buildAgentFollowUpRequest(conversation, prompt);
+    const request = await withDiscordMemory(await buildAgentFollowUpRequest(conversation, prompt), message, prompt, 'message');
     const answer = await getOpenRouterAnswer({
       ...request,
       tools: withOpenRouterDateTimeTool(request.tools),
@@ -310,7 +314,7 @@ async function handleMentionedMessage(message) {
 
   try {
     await message.channel.sendTyping().catch(() => {});
-    const request = buildAskRequest(prompt);
+    const request = await withDiscordMemory(buildAskRequest(prompt), message, prompt, 'message');
     const answer = await getOpenRouterAnswer({
       ...request,
       tools: withOpenRouterDateTimeTool(request.tools),
@@ -522,7 +526,7 @@ function deferOpenRouterCommand(
   operation,
   failureMessage,
   responseFormatter,
-  { ephemeral = true, onComplete } = {},
+  { ephemeral = true, onComplete, memoryInput } = {},
 ) {
   res.send({
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
@@ -533,7 +537,7 @@ function deferOpenRouterCommand(
     void answerInteraction(
       req.body.application_id,
       req.body.token,
-      requestFactory,
+      async () => withDiscordMemory(await requestFactory(), req.body, memoryInput ?? eligibleMemoryInput(req.body)),
       operation,
       failureMessage,
       getDiscordUserId(req),
@@ -597,6 +601,8 @@ function handleStudyRequest(res, req, studyRequest) {
           { ...request, questionCount: studyRequest.questionCount },
           async (retryRequest) => getOpenRouterAnswer({
             ...retryRequest,
+            appTools: undefined,
+            systemPrompt: `${retryRequest.systemPrompt}\nMemory tools are disabled during this formatting repair. Do not claim to save new notes.`,
             tools: withOpenRouterDateTimeTool(retryRequest.tools),
           }),
         );
@@ -1123,6 +1129,7 @@ function handleAgentUiModal(res, req, customId) {
       undefined,
       {
         ephemeral: isTest,
+        memoryInput: task,
         onComplete: isTest
           ? undefined
           : ({ answer, responseMessage }) => {
@@ -1265,10 +1272,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     return res.send({ type: InteractionResponseType.PONG });
   }
 
-  const isPrivateInteraction =
-    (type === InteractionType.APPLICATION_COMMAND && data?.name === 'agent') ||
-    (type === InteractionType.MESSAGE_COMPONENT && data?.custom_id?.startsWith(AGENT_UI_PREFIX)) ||
-    (type === InteractionType.MODAL_SUBMIT && data?.custom_id?.startsWith(AGENT_UI_MODAL_PREFIX));
+  const isPrivateInteraction = keepsInteractionPrivate(req.body);
   if (
     !isPrivateInteraction &&
     (type === InteractionType.APPLICATION_COMMAND || type === InteractionType.MESSAGE_COMPONENT)
@@ -1282,6 +1286,20 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
    */
   if (type === InteractionType.APPLICATION_COMMAND) {
     const { name } = data;
+
+    if (isMemoryCommand(data)) {
+      res.send({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+        data: { flags: InteractionResponseFlags.EPHEMERAL } });
+      setImmediate(async () => {
+        let answer;
+        try { answer = await runMemoryCommand(req.body); }
+        catch { answer = 'Personal memory is temporarily unavailable. Please try again later.'; }
+        const reply = prepareDiscordResponse(answer, { title: 'Your personal memory', filename: 'personal-memory.md' });
+        try { await updateInteractionResponse(req.body.application_id, req.body.token, reply.content, undefined, reply.attachment); }
+        catch { console.error('Could not deliver the private memory response.'); }
+      });
+      return;
+    }
 
     if (name === 'agent') {
       return handleAgentCommand(res, req);
@@ -1525,7 +1543,7 @@ const mentionClient = new Client({
   presence: {
     status: 'online',
     activities: [{
-      name: '@cyrce-boton para preguntas',
+      name: '@Consulting Stack Overflow for life choices',
       type: ActivityType.Listening,
     }],
   },
@@ -1556,6 +1574,8 @@ if (process.env.DISCORD_TOKEN?.trim()) {
 async function shutdown() {
   mentionClient.destroy();
   server.close(async () => {
+    try { await closePersonNotesPool(); }
+    catch { console.error('Could not close the personal memory pool.'); }
     try {
       await closeAdbPool();
     } catch (error) {
