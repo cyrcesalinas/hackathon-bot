@@ -1,12 +1,19 @@
-# Getting Started app for Discord
+# AI Student Circle Discord Bot
 
-This project contains a Discord learning assistant written in JavaScript, built on the [Discord getting started guide](https://discord.com/developers/docs/getting-started).
+A Discord learning assistant powered by OpenRouter and Oracle Autonomous Database. It supports direct questions, cited web research, study guides and quizzes, Oracle Cloud learning, read-only database questions, reusable student-created agents, and replies to bot mentions.
 
-![Demo of app](https://github.com/discord/discord-example-app/raw/main/assets/getting-started-demo.gif?raw=true)
+## Commands
 
-## Project structure
-Below is a basic overview of the project structure:
+| Command | Purpose |
+| --- | --- |
+| `/ask` | Explain a question or concept. |
+| `/research` | Research a topic with web search and source links. |
+| `/study` | Build a study guide or take a five-question quiz from a topic or attached file. |
+| `/oci` | Learn about the supported Oracle Cloud and AI topics. |
+| `/db` | Check the Oracle connection, discover the approved catalog, or query approved schema data. |
+| `/agent` | Create, browse, test, edit, delete, and run reusable learning agents. |
 
+<<<<<<< HEAD
 ```
 ├── examples    -> short, feature-specific sample apps
 │   ├── app.js  -> finished app.js code
@@ -22,177 +29,142 @@ Below is a basic overview of the project structure:
 ├── package.json
 ├── README.md
 └── .gitignore
+=======
+The bot also answers server messages that mention it. Agent runs and follow-up replies are rate limited and keep their continuation context in memory for one hour.
+
+## Requirements
+
+- Node.js 18 or newer
+- A Discord application and bot token
+- An OpenRouter API key and model
+- Oracle Autonomous Database credentials and a wallet for `/db` and persistent agents
+
+Oracle is optional at startup. Features that require an unconfigured service return an availability message instead of stopping the bot.
+
+## Install
+
+```sh
+git clone https://github.com/cyrcesalinas/hackathon-bot.git
+cd hackathon-bot
+npm ci
+cp .env.sample .env
+>>>>>>> 29a47a155f299caefc4b7826d299864aa644ab93
 ```
 
-## Running app locally
+Fill in `.env` with the credentials for the features you plan to use. Do not commit this file, an Oracle wallet, or wallet archives.
 
-Before you start, you'll need to install [NodeJS](https://nodejs.org/en/download/) and [create a Discord app](https://discord.com/developers/applications) with the proper permissions:
-- `applications.commands`
-- `bot` (with Send Messages enabled)
+## Configuration
 
+### Discord
 
-Configuring the app is covered in detail in the [getting started guide](https://discord.com/developers/docs/getting-started).
-
-### Setup project
-
-First clone the project:
-```
-git clone https://github.com/discord/discord-example-app.git
+```env
+APP_ID=your_application_id
+DISCORD_TOKEN=your_bot_token
+PUBLIC_KEY=your_application_public_key
+PORT=3000
 ```
 
-Then navigate to its directory and install dependencies:
-```
-cd discord-example-app
-npm install
-```
-### Get app credentials
+In the Discord Developer Portal:
 
-Fetch the credentials from your app's settings and add them to a `.env` file (see `.env.sample` for an example). You'll need your app ID (`APP_ID`), bot token (`DISCORD_TOKEN`), and public key (`PUBLIC_KEY`).
+1. Add the `applications.commands` and `bot` scopes to the application install.
+2. Give the bot permission to view channels, send messages, read message history, and attach files.
+3. Set the Interactions Endpoint URL to the public HTTPS URL of the server followed by `/interactions`.
 
-Fetching credentials is covered in detail in the [getting started guide](https://discord.com/developers/docs/getting-started).
+For local development, expose the configured port with a tunnel such as ngrok.
 
-> 🔑 Environment variables can be added to the `.env` file in Glitch or when developing locally, and in the Secrets tab in Replit (the lock icon on the left).
-
-### Configure OpenRouter
-
-Add your OpenRouter API key and the model slug you want to use to `.env` (or your hosting provider's secrets):
+### OpenRouter
 
 ```env
 OPENROUTER_API_KEY=your_openrouter_api_key
 OPENROUTER_MODEL=provider/model
-# Optional; timezone for OpenRouter's datetime tool (defaults to New York).
-OPENROUTER_DATETIME_TIMEZONE=America/New_York
-# Optional; override the model used by /study.
 OPENROUTER_STUDY_MODEL=provider/instruct-model
+OPENROUTER_DATETIME_TIMEZONE=America/New_York
+OPENROUTER_AGENT_DATA_COLLECTION=deny
 ```
 
-The bot uses `OPENROUTER_MODEL` for `/ask` and `/research`. `/study` uses `OPENROUTER_STUDY_MODEL` when set and otherwise falls back to `OPENROUTER_MODEL`; choosing an instruction-following model can avoid reasoning-heavy models spending the output budget before producing study notes. If a model exhausts the output limit without producing visible text, the bot retries that request once with reasoning disabled. `/research` additionally enables OpenRouter's `openrouter:web_search` tool and asks for direct source links. Each invocation is a separate request; the bot does not retain conversation history.
+`OPENROUTER_STUDY_MODEL` is optional and falls back to `OPENROUTER_MODEL`. The datetime timezone is also optional. Agent requests deny providers that collect data by default; set `OPENROUTER_AGENT_DATA_COLLECTION=allow` only after reviewing the selected provider's retention and training policy.
 
-`/agent` offers Create, Delete, Edit, List, Run, and Test as selectable actions. **List agents** displays two sections: agents created by the current user and agents created by everyone else. Create builds an agent from a general-assistant, tutor, researcher, study-coach, or custom preset. A student can override the preset's style, independently enable web research and study-file analysis, choose an output format, and select English, Spanish, or automatic language matching. The bot shows the complete configuration and saves it only after confirmation. Test privately exercises an agent owned by the caller, and edits increment the displayed configuration version.
-
-Every saved agent is discoverable and runnable by anyone who uses the bot, including from another server or a DM. Agent names are globally unique and case-insensitive: `Lakshmi` and `lakshmi` are the same name, and creation or renaming fails with a clear message when a name is already taken. Only the creator can edit, delete, or privately test an agent. **Run an agent** posts the result publicly in a server channel so the invocation and answer remain part of the channel history. Agent creation, configuration, listing, and Test responses remain private.
-
-Agents use the bot's configured `OPENROUTER_MODEL`; students cannot provide model IDs, arbitrary tools, code, database access, or secrets. Every agent can use OpenRouter's `openrouter:datetime` tool; web-enabled agents also receive `openrouter:web_search`. File-enabled agents reuse the existing one-run attachment processing, and text files are sent as ordinary text for broad model compatibility. An agent can enable both tools. Agent output budgets are 1,000 tokens for concise, 4,000 for detailed or report output, and 2,500 for every other format. When OpenRouter still ends a non-empty response because of length, the bot makes at most two continuation requests, joins the completed lines, and labels the result if it remains incomplete. Short answers appear directly in Discord; long answers show a completion title and attach the complete response as a Markdown file, avoiding temporary pagination state. Runs remain stateless and are limited to 5 requests per user per minute and 30 per minute across this bot process. Agent provider routing defaults to `data_collection: deny`; set `OPENROUTER_AGENT_DATA_COLLECTION=allow` only after reviewing the selected provider's retention and training policies. Agent profiles persist in Oracle; uploaded files and conversations are not saved by the agent feature.
-
-The `Query schema data` action under `/db` maps a natural-language question to a read-only query plan. The bot automatically builds its catalog from every supported column in every table and view owned by `ADB_CATALOG_OWNER` (default: `ADB_USER`); model-generated SQL is never executed. Query results are formatted by the bot and are not sent back to OpenRouter. The question and semantic query catalog are sent to OpenRouter with data-collection endpoints denied; this request does not require ZDR. Because all supported columns are auto-approved, results may contain sensitive information. The bot requires `ADB_USER`, `ADB_PASSWORD`, `ADB_CONNECT_STRING`, `ADB_WALLET_DIR`, and `ADB_WALLET_PASSWORD`. The command is registered only for Discord servers, but it does not apply an additional guild, role, Administrator, or Manage Server check. Writes and arbitrary SQL are not supported.
-
-The ADB connection uses the downloaded wallet with node-oracledb Thin mode. Oracle Instant Client is not required by this connection path. Extract the wallet into a directory readable only by the service account. Thin mode uses `tnsnames.ora` to resolve the service alias and `ewallet.pem` for mTLS; `ADB_WALLET_PASSWORD` is the password created when the wallet was downloaded. See [node-oracledb's ADB wallet instructions](https://node-oracledb.readthedocs.io/en/latest/user_guide/connection_handling.html#mutual-tls-connections-to-oracle-cloud-autonomous-database).
-
-Set the values on the bot host, not in Discord or source control. Keep the extracted wallet and its ZIP file out of Git. `ADB_CONNECT_STRING` is a service alias from the wallet's `tnsnames.ora`; the low service is appropriate for this bot's small read-only queries.
-
-Configure the ADB environment values on the server. The guild and role restrictions are optional; role IDs are comma-separated if you allow multiple roles:
+### Oracle Autonomous Database
 
 ```env
 ADB_USER=BOT_READONLY
-ADB_PASSWORD=<database-user-password>
+ADB_PASSWORD=your_database_password
 ADB_CONNECT_STRING=discordadb_low
-ADB_WALLET_DIR=/home/opc/discord-example-app/wallet
-ADB_WALLET_PASSWORD=<wallet-download-password>
-ADB_CATALOG_OWNER=<schema-to-scan>
+ADB_WALLET_DIR=/absolute/path/to/wallet
+ADB_WALLET_PASSWORD=your_wallet_password
+ADB_CATALOG_OWNER=YOUR_SCHEMA
 ```
 
-Use a dedicated ADB account with `SELECT` access only to the intended objects for this bot. The database connection uses a small pool with per-query timeouts. The `Check the bot connection to ADB` action under `/db` performs a restricted `SELECT 1 FROM DUAL` connection check and returns only success or failure.
+Use a dedicated account with `SELECT` access only to the tables and views the bot may expose. `/db` builds a runtime catalog from supported columns owned by `ADB_CATALOG_OWNER`, which defaults to `ADB_USER`. It never executes model-generated SQL, but query results can still contain sensitive data and are public when used in a server channel.
 
-Agent profiles use a separate database pool. For the simplest development setup, omit `AGENT_STORE_USER` and `AGENT_STORE_PASSWORD`; the bot will reuse `ADB_USER` and `ADB_PASSWORD`. When `AGENT_STORE_OWNER` is blank, it defaults to `ADB_USER`, even if dedicated agent-store credentials are configured. That database user must own `AGENT_PROFILES`, while a different runtime user needs the required table grants.
+The connection uses node-oracledb Thin mode with `tnsnames.ora` and `ewallet.pem`; Oracle Instant Client is not required.
 
-For production, a separate runtime user remains recommended so the `/db` account can stay read-only. Configure it with access only to the profile table, using the same wallet and connect string:
+### Agent profile storage
+
+For development, agent profiles can reuse `ADB_USER` and `ADB_PASSWORD`. For production, use a separate runtime account:
 
 ```env
 AGENT_STORE_USER=BOT_AGENT_APP
-AGENT_STORE_PASSWORD=<agent-store-runtime-password>
+AGENT_STORE_PASSWORD=your_agent_store_password
 AGENT_STORE_OWNER=BOT_AGENT_OWNER
 ```
 
-Connect as `AGENT_STORE_OWNER` and run the unified [`db/agent-store-schema.sql`](db/agent-store-schema.sql). It can be run against an empty owner schema to create the complete table, or against an older `AGENT_PROFILES` table to add missing agent-builder fields and enforce globally unique names without deleting existing agents. The script is retry-safe, but back up an existing production table before applying any schema change. Then grant only the table operations required by the bot to the runtime account:
+Connect as `AGENT_STORE_OWNER` and apply the retry-safe schema script:
 
 ```sql
 @db/agent-store-schema.sql
-```
-
-```sql
 GRANT SELECT, INSERT, UPDATE, DELETE ON AGENT_PROFILES TO BOT_AGENT_APP;
 ```
 
-`AGENT_STORE_OWNER` is the schema that owns `AGENT_PROFILES`; it must be an unquoted Oracle schema name. The bot uses fixed SQL statements and binds student values. `/agent` stays unavailable until the runtime credentials, table, and grants are configured. The bot stores at most 20 profiles per Discord user. Every profile is available for any bot user to browse and run; ownership controls only edit, delete, and Test access.
+The schema script creates a new `AGENT_PROFILES` table or upgrades an older one in place. Back up an existing production table before applying schema changes.
 
-If the schema upgrader reports duplicate agent names, inspect the collisions before renaming them, then rerun the same script:
+Agent profiles are globally discoverable. Only the creator can edit, delete, or privately test an agent. Uploaded files and conversation text are not stored permanently by the agent feature.
 
-```sql
-SELECT UPPER(NAME) AS NORMALIZED_NAME,
-       LISTAGG(OWNER_USER_ID || ':' || NAME, ', ')
-         WITHIN GROUP (ORDER BY OWNER_USER_ID) AS AGENTS
-  FROM AGENT_PROFILES
- GROUP BY UPPER(NAME)
-HAVING COUNT(*) > 1;
-```
+## Register and run
 
-The `Discover schema tables and views for the approved catalog` action under `/db` reads Oracle metadata for every table and view owned by `ADB_CATALOG_OWNER` (default: `ADB_USER`), auto-approves all supported columns in the runtime catalog, and reports the result. It does not read table rows or modify the database. The `Query schema data` action refreshes the automatic catalog when needed, so running the scan first is optional.
+Register the slash commands after configuring Discord credentials:
 
-The runtime catalog permits lists, counts, filtering, sorting, grouping, sums, and averages where compatible with the Oracle column type. Responses remain limited to 25 rows, queries use bind variables, and only `SELECT` statements pass the database execution guard. Automatic approval deliberately does not distinguish sensitive application data from other supported columns.
-
-Select `/study`, then choose **Guide** or **Exam** in the `action` option. Both activities accept `input`, `file`, or both; at least one is required. Exams always contain exactly five questions. Study files can be PDF, TXT, Markdown, CSV, or JSON, up to 8 MB.
-
-| Activity | What to provide | Example |
-| --- | --- | --- |
-| Guide: Create a study guide | A topic in input, a file, or both; at least one is required | input: SQL joins for beginners, with examples |
-| Exam: Practice with an interactive quiz | A topic in input, a file, or both; exactly five questions | input: Cell biology, or file: class-notes.pdf |
-
-An exam presents one multiple-choice question at a time with answer buttons, explains each answer, shows a final score, and lets the user review missed questions. Quiz state is private and held in memory for 30 minutes; it is lost if the bot restarts, and scores are not saved. A guide uses OpenRouter web search for source links and returns the full AI answer as a downloadable Markdown file. The bot downloads study files only to process that request and does not keep them for later requests; attach them again when requesting a guide or exam. PDF parsing uses OpenRouter's `cloudflare-ai` parser. File contents are sent to OpenRouter for processing.
-
-### Install slash commands
-
-The commands for the example app are set up in `commands.js`. All of the commands in the `ALL_COMMANDS` array at the bottom of `commands.js` will be installed when you run the `register` command configured in `package.json`:
-
-```
+```sh
 npm run register
 ```
 
-In server channels, learning command responses post publicly. **Run an agent** also posts publicly, regardless of who created the globally available agent. Agent-builder and management interactions, browsing, Agent Test, and database interactions remain ephemeral so configuration and database results are not exposed to the channel. Commands used in DMs retain their existing response visibility behavior.
+Start the bot:
 
-Run registration after adding or changing commands, then restart `discord-example.service`. Run the unified agent-store schema script before restarting this version against an empty or older profile schema. The `/db` action selector offers a connection check, an administrator catalog scan, and a query action. `/agent` becomes usable after the profile table and separate runtime credentials are configured.
-
-### Run the app
-
-After your credentials are added, go ahead and run the app:
-
-```
-node app.js
+```sh
+npm start
 ```
 
-> ⚙️ A package [like `nodemon`](https://github.com/remy/nodemon), which watches for local changes and restarts your app, may be helpful while locally developing.
+For development with automatic restarts:
 
-If you aren't following the [getting started guide](https://discord.com/developers/docs/getting-started), you can move the contents of `examples/app.js` (the finished `app.js` file) to the top-level `app.js`.
-
-### Set up interactivity
-
-The project needs a public endpoint where Discord can send requests. To develop and test locally, you can use something like [`ngrok`](https://ngrok.com/) to tunnel HTTP traffic.
-
-Install ngrok if you haven't already, then start listening on port `3000`:
-
-```
-ngrok http 3000
+```sh
+npm run dev
 ```
 
-You should see your connection open:
+Command registration installs the current commands and removes the known legacy `/agents`, `/challenge`, `/test`, and `/dev` commands.
 
+## Deployment
+
+The included GitHub Actions workflow connects to the configured OCI host, runs `npm ci --omit=dev`, registers commands, and restarts `discord-example.service`. Configure these repository values before enabling it:
+
+- Variable: `DEPLOY_HOST`
+- Variable: `DEPLOY_USER`
+- Secret: `DEPLOY_SSH_KEY`
+- Secret: `DEPLOY_KNOWN_HOSTS`
+
+The remote workflow currently expects the checkout at `/home/opc/discord-example-app`. Update the workflow and the `deploy` script together if your service or installation uses different names.
+
+## Data handling
+
+- `/ask`, `/research`, `/study`, `/oci`, and agent prompts send request content to OpenRouter.
+- Study and agent attachments are processed for the current request and are not saved by this repository.
+- Agent profiles persist in Oracle; conversation continuations and quiz state stay in process memory and disappear on restart.
+- `/db` sends the user's question and schema catalog to OpenRouter, then validates and executes a read-only query plan locally. Database rows are not sent back to OpenRouter.
+- Learning command responses, `/db` responses, and normal agent runs are public in server channels. Agent setup, management, and private tests use ephemeral responses.
+
+## Maintenance
+
+```sh
+npm test
 ```
-Tunnel Status                 online
-Version                       2.0/2.0
-Web Interface                 http://127.0.0.1:4040
-Forwarding                    https://1234-someurl.ngrok.io -> localhost:3000
 
-Connections                  ttl     opn     rt1     rt5     p50     p90
-                              0       0       0.00    0.00    0.00    0.00
-```
-
-Copy the forwarding address that starts with `https`, in this case `https://1234-someurl.ngrok.io`, then go to your [app's settings](https://discord.com/developers/applications).
-
-On the **General Information** tab, there will be an **Interactions Endpoint URL**. Paste your ngrok address there, and append `/interactions` to it (`https://1234-someurl.ngrok.io/interactions` in the example).
-
-Click **Save Changes**, and your app should be ready to run 🚀
-
-## Other resources
-- Read **[the documentation](https://discord.com/developers/docs/intro)** for in-depth information about API features.
-- Browse the `examples/` folder in this project for smaller, feature-specific code examples
-- Join the **[Discord Developers server](https://discord.gg/discord-developers)** to ask questions about the API, attend events hosted by the Discord API team, and interact with other devs.
-- Check out **[community resources](https://discord.com/developers/docs/topics/community-resources#community-resources)** for language-specific tools maintained by community members.
+The project uses npm and commits `package-lock.json`. Keep command definitions in `commands.js` aligned with the interaction handlers in `app.js`.

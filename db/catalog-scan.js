@@ -96,7 +96,7 @@ function buildAutoCatalog(objects) {
     catalog.push({
       id,
       label: object.name,
-      description: `Auto-approved ${object.objectType.toLowerCase()} ${object.owner}.${object.name}.`,
+      description: `${object.objectType.toLowerCase()} ${object.owner}.${object.name}.`,
       source: { owner: object.owner, name: object.name },
       allowUnfilteredList: true,
       allowUnfilteredCount: true,
@@ -106,14 +106,6 @@ function buildAutoCatalog(objects) {
   }
 
   return catalog;
-}
-
-function getActiveSources() {
-  return new Set(ADB_QUERY_CATALOG.map((dataset) => {
-    const owner = dataset.source?.owner?.toUpperCase() ?? '';
-    const name = dataset.source?.name?.toUpperCase() ?? '';
-    return `${owner}.${name}`;
-  }));
 }
 
 async function loadCatalogMetadata() {
@@ -189,24 +181,32 @@ export async function scanAdbCatalog() {
     return `No tables or views were found in the ${owner} schema.`;
   }
 
-  const activeSources = getActiveSources();
-  const lines = [
-    `Catalog scan: all supported columns in tables and views owned by ${owner} were auto-approved.`,
-    '⚠️ Results may contain sensitive information. Users must not request, share, or repost sensitive data.',
-  ];
+  return formatAdbCatalogScan(owner, objects);
+}
 
-  for (const object of objects.slice(0, MAX_VISIBLE_OBJECTS)) {
-    const status = activeSources.has(`${object.owner}.${object.name}`) ? 'auto-approved' : 'unsupported';
-    const visibleColumns = object.columns
+export function formatAdbCatalogScan(owner, objects) {
+  const visibleObjects = objects.slice(0, MAX_VISIBLE_OBJECTS);
+  const lines = [`**Database catalog — ${owner}**`];
+
+  for (const object of visibleObjects) {
+    const supportedColumns = object.columns.filter((column) => column.type !== 'unsupported');
+    const visibleColumns = supportedColumns
       .slice(0, MAX_VISIBLE_COLUMNS)
-      .map((column) => `${column.name}:${column.type}`);
-    const remaining = object.columns.length - visibleColumns.length;
-    lines.push(`• ${object.objectType} ${object.name} [${status}] — ${visibleColumns.join(', ')}${remaining > 0 ? `, +${remaining} more` : ''}`);
+      .map((column) => `\`${column.name}\` (${column.type})`);
+    const remaining = supportedColumns.length - visibleColumns.length;
+    const objectType = object.objectType === 'VIEW' ? 'View' : 'Table';
+
+    lines.push('', `**${object.name}** · ${objectType}`);
+    lines.push(
+      visibleColumns.length
+        ? `${visibleColumns.join(' · ')}${remaining > 0 ? ` · +${remaining} more` : ''}`
+        : '_No supported columns_'
+    );
   }
 
   if (objects.length > MAX_VISIBLE_OBJECTS) {
-    lines.push(`Showing ${MAX_VISIBLE_OBJECTS} of ${objects.length} discovered objects.`);
+    lines.push('', `_Showing ${MAX_VISIBLE_OBJECTS} of ${objects.length} tables and views._`);
   }
-  lines.push('The automatic catalog refreshes on scan and at most once every five minutes during lookups.');
+  lines.push('', '_Catalog refreshes automatically every five minutes during lookups._');
   return lines.join('\n');
 }

@@ -1,4 +1,5 @@
 import { ADB_QUERY_CATALOG } from './catalog.js';
+import { resolveCatalogEntry } from './catalog-resolver.js';
 import { executeAdbRead } from './connection.js';
 
 const MAX_FILTERS = 5;
@@ -65,7 +66,7 @@ function quoteIdentifier(value) {
 }
 
 function getDataset(datasetId) {
-  const dataset = ADB_QUERY_CATALOG.find((item) => item.id === datasetId);
+  const dataset = resolveCatalogEntry(ADB_QUERY_CATALOG, datasetId);
   if (!dataset) throw new Error('The requested dataset is not approved');
   if (!Array.isArray(dataset.columns) || !dataset.columns.length) {
     throw new Error('The approved dataset has no queryable columns');
@@ -74,7 +75,7 @@ function getDataset(datasetId) {
 }
 
 function getColumn(dataset, columnId) {
-  const column = dataset.columns.find((item) => item.id === columnId);
+  const column = resolveCatalogEntry(dataset.columns, columnId);
   if (!column) throw new Error('The requested column is not approved');
   return column;
 }
@@ -108,7 +109,7 @@ function normalizeValue(column, value) {
   throw new Error('Unsupported column type in ADB query catalog');
 }
 
-function validatePlan(plan) {
+export function validateAdbQueryPlan(plan) {
   if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
     throw new Error('Invalid query plan');
   }
@@ -134,7 +135,7 @@ function validatePlan(plan) {
   assertOnlyKeys(plan, allowedPlanKeys[plan.kind], 'query plan');
 
   const dataset = getDataset(plan.dataset);
-  if (plan.filters !== undefined && !Array.isArray(plan.filters)) {
+  if (plan.filters !== undefined && plan.filters !== null && !Array.isArray(plan.filters)) {
     throw new Error('Invalid query filters');
   }
   const filters = Array.isArray(plan.filters) ? plan.filters : [];
@@ -185,12 +186,12 @@ function validatePlan(plan) {
     if (!Array.isArray(plan.columns) || plan.columns.length < 1 || plan.columns.length > MAX_COLUMNS) {
       throw new Error('Invalid selected columns');
     }
-    assertUniqueIds(plan.columns, 'selected columns');
     columns = plan.columns.map((id) => {
       const column = getColumn(dataset, id);
       if (column.selectable !== true) throw new Error('The requested column is not selectable');
       return column;
     });
+    assertUniqueIds(columns.map((column) => column.id), 'selected columns');
 
     if (plan.orderBy) {
       if (typeof plan.orderBy !== 'object' || Array.isArray(plan.orderBy)) {
@@ -204,17 +205,17 @@ function validatePlan(plan) {
       orderBy = { column, direction: plan.orderBy.direction };
     }
   } else {
-    if (plan.groupBy !== undefined && !Array.isArray(plan.groupBy)) {
+    if (plan.groupBy !== undefined && plan.groupBy !== null && !Array.isArray(plan.groupBy)) {
       throw new Error('Invalid grouping columns');
     }
     const groupIds = Array.isArray(plan.groupBy) ? plan.groupBy : [];
     if (groupIds.length > MAX_GROUPS) throw new Error('Too many grouping columns');
-    assertUniqueIds(groupIds, 'grouping columns');
     groupBy = groupIds.map((id) => {
       const column = getColumn(dataset, id);
       if (column.groupable !== true) throw new Error('The requested group is not approved');
       return column;
     });
+    assertUniqueIds(groupBy.map((column) => column.id), 'grouping columns');
 
     if (plan.kind === 'sum' || plan.kind === 'avg') {
       measure = getColumn(dataset, plan.measure);
@@ -230,11 +231,12 @@ function validatePlan(plan) {
 
   if (
     plan.limit !== undefined &&
-    (!Number.isInteger(plan.limit) || plan.limit < 1 || plan.limit > MAX_ROWS)
+    plan.limit !== null &&
+    (!Number.isInteger(plan.limit) || plan.limit < 1)
   ) {
     throw new Error('Invalid row limit');
   }
-  const limit = plan.limit ?? 10;
+  const limit = Math.min(plan.limit ?? 10, MAX_ROWS);
   return {
     kind: plan.kind,
     dataset,
@@ -311,7 +313,7 @@ function buildQuery(plan) {
 export async function executeAdbQuery(rawPlan) {
   let plan;
   try {
-    plan = validatePlan(rawPlan);
+    plan = validateAdbQueryPlan(rawPlan);
   } catch (error) {
     throw new AdbQueryPlanError(error.message);
   }

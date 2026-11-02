@@ -139,6 +139,7 @@ test('web-enabled agents receive only the approved OpenRouter search tool', asyn
 
   assert.deepEqual(request.tools, [{ type: 'openrouter:web_search' }]);
   assert.deepEqual(request.provider, { data_collection: 'deny' });
+  assert.deepEqual(request.reasoning, { effort: 'low' });
   assert.match(request.systemPrompt, /Respond in English/);
   assert.match(request.systemPrompt, /research report/);
 });
@@ -170,6 +171,12 @@ test('agent response formats use the expanded output budgets and two continuatio
     );
     assert.equal(request.maxTokens, maxTokens);
     assert.equal(request.maxContinuations, 2);
+    assert.deepEqual(
+      request.reasoning,
+      ['detailed', 'report'].includes(responseFormat)
+        ? { effort: 'low' }
+        : { enabled: false },
+    );
   }
 });
 
@@ -195,6 +202,7 @@ test('markdown attachments are sent to OpenRouter as plain text', async () => {
     assert.match(request.userContent, /Attached file: notes\.md/);
     assert.match(request.userContent, /# Notes/);
     assert.equal(request.tools, undefined);
+    assert.deepEqual(request.reasoning, { enabled: false });
   } finally {
     globalThis.fetch = originalFetch;
   }

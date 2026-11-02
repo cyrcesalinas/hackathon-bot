@@ -190,6 +190,22 @@ export async function listAvailableAgents() {
   return listGlobalAgents();
 }
 
+function getResponseFormatInstruction(responseFormat) {
+  return {
+    concise: 'Keep the final answer concise and focused on the most useful information.',
+    detailed: 'Give a detailed answer with enough context to understand the reasoning.',
+    step_by_step: 'Organize the answer as clear, ordered steps.',
+    structured: 'Use short titled sections and actionable review points.',
+    report: 'Return a compact research report with findings, uncertainty, and sources when research is used.',
+    balanced: 'Balance clarity, useful detail, and brevity.',
+  }[responseFormat] ?? 'Balance clarity, useful detail, and brevity.';
+}
+
+function getLanguageInstruction(language) {
+  if (language === 'en') return 'Respond in English.';
+  return 'Respond in the language used by the student.';
+}
+
 export async function buildUserAgentRequest(agent, taskValue, attachmentId, resolvedAttachments = {}) {
   const task = normalizeField(taskValue, 'task', MAX_AGENT_TASK_LENGTH);
   const tools = normalizeAgentTools(agent.tools);
@@ -207,6 +223,11 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
       : 2500;
   const openRouterTools = canSearchWeb ? [{ type: 'openrouter:web_search' }] : undefined;
   const provider = resolveAgentProviderPolicy();
+  const reasoning = attachmentId !== undefined
+    ? { enabled: false }
+    : ['detailed', 'report'].includes(agent.responseFormat)
+      ? { effort: 'low' }
+      : { enabled: false };
 
   if (attachmentId !== undefined) {
     const options = [
@@ -226,6 +247,7 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
       maxContinuations: 2,
       tools: openRouterTools,
       provider,
+      reasoning,
     };
   }
 
@@ -236,5 +258,6 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
     maxContinuations: 2,
     tools: openRouterTools,
     provider,
+    reasoning,
   };
 }
