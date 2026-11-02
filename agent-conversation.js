@@ -1,4 +1,5 @@
 import { buildUserAgentRequest } from './agents/user-agent.js';
+import { buildAgentFollowUpUserContent } from './prompts.js';
 
 export const AGENT_CONVERSATION_TTL_MS = 60 * 60_000;
 const AGENT_CONVERSATION_LIMIT = 100;
@@ -56,21 +57,11 @@ export async function buildAgentFollowUpRequest(conversation, followUpTask) {
     conversation.attachmentId,
     conversation.resolvedAttachments,
   );
-  const contextText = [
-    'This is a follow-up to an earlier agent run. Use the same attached file when present and answer the new request in the context of the earlier exchange.',
-    `Original task: ${conversation.originalTask}`,
-    `Most recent user request: ${conversation.previousTask}`,
-    `Most recent assistant answer:\n${conversation.previousAnswer}`,
-    `New follow-up request: ${followUpTask}`,
-  ].join('\n\n');
-
-  if (typeof request.userContent === 'string') {
-    request.userContent = `${request.userContent}\n\nConversation context:\n${contextText}`;
-  } else if (Array.isArray(request.userContent)) {
-    request.userContent = [
-      { type: 'text', text: contextText },
-      ...request.userContent,
-    ];
-  }
+  request.userContent = buildAgentFollowUpUserContent(request.userContent, {
+    originalTask: conversation.originalTask,
+    previousTask: conversation.previousTask,
+    previousAnswer: conversation.previousAnswer,
+    followUpTask,
+  });
   return request;
 }

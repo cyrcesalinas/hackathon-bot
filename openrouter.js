@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { CONTINUATION_INSTRUCTION, DATETIME_SYSTEM_INSTRUCTION } from './prompts.js';
+import { buildSystemPromptWithDateTime, CONTINUATION_INSTRUCTION } from './prompts.js';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DATETIME_TOOL_TYPE = 'openrouter:datetime';
@@ -227,9 +227,10 @@ export async function getOpenRouterAnswer({
     messages: [
       {
         role: 'system',
-        content: Array.isArray(tools) && tools.some((tool) => tool?.type === DATETIME_TOOL_TYPE)
-          ? `${systemPrompt}\n\n${DATETIME_SYSTEM_INSTRUCTION}`
-          : systemPrompt,
+        content: buildSystemPromptWithDateTime(
+          systemPrompt,
+          Array.isArray(tools) && tools.some((tool) => tool?.type === DATETIME_TOOL_TYPE),
+        ),
       },
       { role: 'user', content: userContent },
     ],

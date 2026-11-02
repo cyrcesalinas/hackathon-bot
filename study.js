@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { ButtonStyleTypes, MessageComponentTypes } from 'discord-interactions';
 import {
+  buildStudyAttachmentPrompt,
+  buildStudyExamRetrySystemPrompt,
+  buildStudyTextAttachmentPrompt,
   getStudySystemPrompt,
   getStudyTaskPrompt,
-  STUDY_EXAM_RETRY_INSTRUCTION,
 } from './prompts.js';
 
 const MAX_STUDY_FILE_BYTES = 8 * 1024 * 1024;
@@ -348,7 +350,7 @@ export async function buildStudyOpenRouterRequest(request) {
     return {
       systemPrompt,
       userContent: [
-        { type: 'text', text: `${taskPrompt}\nMaterial adjunto: ${filename}` },
+        { type: 'text', text: buildStudyAttachmentPrompt(taskPrompt, filename) },
         {
           type: 'file',
           file: {
@@ -379,7 +381,7 @@ export async function buildStudyOpenRouterRequest(request) {
 
   return {
     systemPrompt,
-    userContent: `${taskPrompt}\nAttached file: ${filename}\n\nFile contents:\n${text}${truncated ? '\n\n[The file was shortened to fit the processing limit.]' : ''}`,
+    userContent: buildStudyTextAttachmentPrompt(taskPrompt, filename, text, truncated),
     ...getStudyResponseOptions(request),
   };
 }
@@ -551,7 +553,7 @@ export async function parseStudyQuizWithRetry(answer, request, regenerate) {
   try {
     const retryAnswer = await regenerate({
       ...request,
-      systemPrompt: `${request.systemPrompt}\n\n${STUDY_EXAM_RETRY_INSTRUCTION}`,
+      systemPrompt: buildStudyExamRetrySystemPrompt(request.systemPrompt),
       reasoning: { enabled: false },
     });
     return parseStudyQuiz(retryAnswer, request.questionCount);
@@ -605,6 +607,18 @@ function getMissedQuestionIndexes(quiz) {
   }, []);
 }
 
+function getFocusTopics(quiz) {
+  const counts = new Map();
+  for (const questionIndex of getMissedQuestionIndexes(quiz)) {
+    const question = quiz.questions[questionIndex];
+    const topic = (question.topic || quiz.title).replace(/\s+/g, ' ').trim();
+    const key = topic.toLocaleLowerCase();
+    const current = counts.get(key);
+    counts.set(key, { topic: current?.topic || topic, count: (current?.count || 0) + 1 });
+  }
+  return [...counts.values()].sort((left, right) => right.count - left.count || left.topic.localeCompare(right.topic));
+}
+
 function getScoreLabel(quiz) {
   const score = getScore(quiz);
   const total = quiz.questions.length;
@@ -635,6 +649,15 @@ function getReviewContent(quiz) {
   ].join('\n');
 }
 
+function getFocusTopicsContent(quiz) {
+  const topics = getFocusTopics(quiz);
+  if (topics.length === 0) return '**Topics to focus on:** None — you got every question right.';
+  return [
+    '**Topics to focus on:**',
+    ...topics.map(({ topic, count }) => `• ${topic} — ${count} missed ${count === 1 ? 'question' : 'questions'}`),
+  ].join('\n');
+}
+
 export function renderStudyQuiz(quiz) {
   const question = quiz.questions[quiz.questionIndex];
 
@@ -651,11 +674,16 @@ export function renderStudyQuiz(quiz) {
 
   if (quiz.status === 'feedback') {
     const nextLabel = quiz.questionIndex === quiz.questions.length - 1 ? 'See results' : 'Next question';
+    const answerStatus = quiz.answers[quiz.questionIndex] === question.correctIndex
+      ? '✅ Correct!'
+      : '❌ Better luck next time!';
     return {
       content: [
         getQuestionHeading(quiz, quiz.questionIndex),
         '',
         `**${question.question}**`,
+        '',
+        answerStatus,
         '',
         formatCorrectAnswer(question),
         ...(question.explanation ? ['', `**Why:** ${question.explanation}`] : []),
@@ -686,8 +714,8 @@ export function renderStudyQuiz(quiz) {
   const missedCount = getMissedQuestionIndexes(quiz).length;
   return {
     content: missedCount === 0
-      ? `**${quiz.title} complete**\n\nScore: **${getScoreLabel(quiz)}**\nPerfect score — you got every question right.`
-      : `**${quiz.title} complete**\n\nScore: **${getScoreLabel(quiz)}**\nYou missed ${missedCount} ${missedCount === 1 ? 'question' : 'questions'}. Review them below.`,
+      ? `**${quiz.title} complete**\n\nScore: **${getScoreLabel(quiz)}**\nCongrats! Take a rest.\n\n${getFocusTopicsContent(quiz)}`
+      : `**${quiz.title} complete**\n\nScore: **${getScoreLabel(quiz)}**\nYou missed ${missedCount} ${missedCount === 1 ? 'question' : 'questions'}. Review them below.\n\n${getFocusTopicsContent(quiz)}`,
     components: missedCount === 0
       ? []
       : [{
@@ -733,6 +761,14 @@ function validateQuizMessageLengths(title, questions) {
         status: 'review',
         reviewIndexes: new Array(questions.length).fill(questionIndex),
         reviewIndex: questions.length - 1,
+      },
+      {
+        id: quizId,
+        title,
+        questions,
+        answers: reviewAnswers,
+        questionIndex,
+        status: 'complete',
       },
     ];
 
