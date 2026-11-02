@@ -611,11 +611,9 @@ function getScoreLabel(quiz) {
   return `${score}/${total} (${Math.round((score / total) * 100)}%)`;
 }
 
-function formatChoices(question) {
-  return question.choices.map((choice, index) => {
-    const answer = `${ANSWER_LETTERS[index]}. ${choice}`;
-    return index === question.correctIndex ? `**${answer}**` : answer;
-  }).join('\n');
+function formatCorrectAnswer(question) {
+  const answer = `${ANSWER_LETTERS[question.correctIndex]}. ${question.choices[question.correctIndex]}`;
+  return `**Correct answer:** **${answer}**`;
 }
 
 function getQuestionHeading(quiz, questionIndex) {
@@ -632,7 +630,7 @@ function getReviewContent(quiz) {
     '',
     `**${question.question}**`,
     '',
-    formatChoices(question),
+    formatCorrectAnswer(question),
     ...(question.explanation ? ['', `**Why:** ${question.explanation}`] : []),
   ].join('\n');
 }
@@ -659,7 +657,7 @@ export function renderStudyQuiz(quiz) {
         '',
         `**${question.question}**`,
         '',
-        formatChoices(question),
+        formatCorrectAnswer(question),
         ...(question.explanation ? ['', `**Why:** ${question.explanation}`] : []),
       ].join('\n'),
       components: [{
