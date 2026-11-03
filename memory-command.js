@@ -31,5 +31,5 @@ export async function runMemoryCommand(event, { store = personNotes, enabled = m
   }
   const count = await store.remove(context, action === 'delete' ? id : undefined);
   return action === 'delete' ? (count ? 'Note deleted.' : 'That note was not found in your current channel.')
-    : `Deleted ${count} personal notes from your current channel.`;
+    : `Deleted ${count} personal notes from your current channel.`; 
 }
