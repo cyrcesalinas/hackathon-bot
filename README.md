@@ -105,7 +105,7 @@ Agent profiles are globally discoverable. Only the creator can edit, delete, or 
 
 ### Personal memory in ADB
 
-Memory uses OpenRouter client function tools: the model chooses `remember(note)` or `about_person()` with `tool_choice: auto`; the app validates and executes the request, then returns its matching tool result. Existing web-search and datetime tools remain available. Without a dedicated memory model, the answer model must support function tools together with its requested formatting parameters. Set `OPENROUTER_MEMORY_MODEL` to run memory decisions in a separate function-tool phase using only the original typed input. Confirmed tool results then enter the original answer model as dated, untrusted data; files, web tools and structured exams keep their own request format.
+Memory uses OpenRouter client function tools in the same request as the answer. The selected model chooses `remember(note)` or `about_person()` with `tool_choice: auto`; the app validates and executes each call, then returns its result in the same tool-calling loop. The selected model must support function tools together with the request's formatting and file inputs. There is no memory enable flag or dedicated memory model setting. A tool-free validation request checks a proposed note before saving, using the model selected for the original request. Existing web-search and datetime tools remain available alongside memory tools.
 
 Install the schema **as its owner** using the configured wallet and credentials:
 
@@ -128,14 +128,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON PERSON_NOTE_SCOPES TO BOT_MEMORY_APP;
 Do not grant memory-table access to the `/db` account. The app also excludes memory tables from metadata discovery, query-plan validation, and SQL execution. Existing views or synonyms that expose private tables must not be granted to the `/db` account.
 
 ```env
-USER_MEMORY_ENABLED=true
-OPENROUTER_MEMORY_MODEL=your_tested_function_model
 USER_MEMORY_USER=BOT_MEMORY_APP
 USER_MEMORY_PASSWORD=your_memory_store_password
 USER_MEMORY_OWNER=BOT_MEMORY_OWNER
 ```
 
-The account defaults to `AGENT_STORE_USER` and then `ADB_USER`; the owner defaults to `AGENT_STORE_OWNER` and then the memory account. Shared credentials are supported for development; separate accounts enforce the database boundary in production. Register commands and restart the bot after enabling memory.
+The account defaults to `AGENT_STORE_USER` and then `ADB_USER`; the owner defaults to `AGENT_STORE_OWNER` and then the memory account. Shared credentials are supported for development; separate accounts enforce the database boundary in production. Configure the database grants and register the `/memory` command before restarting the bot. Memory tools are included automatically when an eligible Discord request has a valid memory context and the store is available.
 
 Each `PERSON_NOTES` row stores its ID, Discord user, guild (`@dm` for private conversations), exact channel, note, source message/interaction ID, source type, and Oracle timestamp. Discord IDs remain strings. `remember` accepts **only** a note: all identity and provenance fields come from the Discord event, never from the model. Individual DMs and group DMs stay separate because their channel IDs differ. Notes never cross channels, servers, or users.
 
@@ -143,7 +141,7 @@ The original typed inputs to `/ask`, `/research`, `/study`, `/oci`, `/agent` run
 
 `about_person()` reads the **latest 40 notes**, ordered by creation time and ID. The complete history remains until deleted; older notes are not retrieved by this tool. Retries of the same normalized note from the same source message or interaction are not reinserted. A later self-disclosure can reaffirm an older preference while preserving the order of corrections. Notes are dated data, never instructions; a newer explicit correction takes precedence. Use `/memory action:list` to inspect notes, `/memory action:delete id:...` to delete an outdated note, or `/memory action:clear` to erase all your notes **in the current channel**. These operations and attached exports are private. Other users cannot manage your notes.
 
-There are at most two write attempts per turn, four tool rounds and eight tool executions with a shared deadline. Formatting repairs and response continuations cannot repeat memory effects. Writes hold a scope lock; deletion changes its revision so a pending request cannot recreate forgotten notes. Commit failures report an uncertain outcome rather than a successful save. If memory is unavailable, the app answers without memory tools. Requests carrying memory use `provider.data_collection: deny` and `require_parameters: true`, including the validation request. The memory model is independently configurable; the live agent check verifies actual function calls rather than relying only on advertised model capabilities. These options are not a guarantee of zero retention by every service. Logs omit note contents and provider error bodies.
+There are at most two write attempts per turn, four tool rounds and eight tool executions with a shared deadline. Formatting repairs and response continuations cannot repeat memory effects. Writes hold a scope lock; deletion changes its revision so a pending request cannot recreate forgotten notes. Commit failures report an uncertain outcome rather than a successful save. If memory is unavailable, the app answers without memory tools. Requests carrying memory use `provider.data_collection: deny` and `require_parameters: true`, including the validation request. The live agent check verifies actual function calls rather than relying only on advertised model capabilities. These options are not a guarantee of zero retention by every service. Logs omit note contents and provider error bodies.
 
 OpenRouter reference: [Client tools and tool calling](https://openrouter.ai/docs/guides/features/tool-calling).
 

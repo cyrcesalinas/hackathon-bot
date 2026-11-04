@@ -84,7 +84,7 @@ test('OpenRouter retains native tools and transcript; length retry never reexecu
   assert.deepEqual(bodies[2].tools, bodies[0].tools);
 });
 
-test('a dedicated memory model uses only original text and preserves the answer model file/JSON/native-tool request', async (t) => {
+test('memory tools share the answer model request, file input, response format, and native tools', async (t) => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = 'test-key';
@@ -93,53 +93,30 @@ test('a dedicated memory model uses only original text and preserves the answer 
     if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = originalKey;
   });
   const bodies = [];
-  let memoryRound = 0;
   const richInput = [{ type: 'text', text: 'Generate an exam from this file.' }, { type: 'file', file: { filename: 'test.pdf', file_data: 'synthetic' } }];
   globalThis.fetch = async (_url, options) => {
     const body = JSON.parse(options.body);
     bodies.push(body);
-    const payload = body.model === 'memory/model'
-      ? (++memoryRound === 1 ? response({ tool_calls: [toolCall('recall', 'about_person')] }) : response({ content: 'Memory phase done.' }))
+    const payload = bodies.length === 1
+      ? response({ tool_calls: [toolCall('recall', 'about_person')] })
       : response({ content: '{"questions":[]}' });
     return new Response(JSON.stringify(payload), { status: 200 });
   };
   const format = { type: 'json_object' };
   await getOpenRouterAnswer({ systemPrompt: 'Exam prompt', userContent: richInput, model: 'exam/model', responseFormat: format,
-    tools: [{ type: 'openrouter:datetime' }], appToolModel: 'memory/model', appToolInput: 'My exam topic.', appToolSystemPrompt: 'Manage memory.',
+    tools: [{ type: 'openrouter:datetime' }],
     appTools: { about_person: { definition: { type: 'function', function: { name: 'about_person' } }, run: async () => ({ notes: [{ note: 'The user prefers concise explanations.' }] }) } },
   });
-  assert.equal(bodies.length, 3);
-  assert.equal(bodies[0].messages[1].content, 'My exam topic.');
-  assert.equal(bodies[0].response_format, undefined);
-  const final = bodies.at(-1);
-  assert.deepEqual(final.messages[1].content, richInput);
-  assert.deepEqual(final.response_format, format);
-  assert.deepEqual(final.tools, [{ type: 'openrouter:datetime' }]);
-  assert.match(final.messages.at(-1).content, /The user prefers concise explanations/);
-  assert.doesNotMatch(final.messages.at(-1).content, /Memory phase done/);
-});
-
-test('a later memory-phase provider failure preserves confirmed writes and still permits an answer', async (t) => {
-  const originalFetch = globalThis.fetch;
-  const originalKey = process.env.OPENROUTER_API_KEY;
-  process.env.OPENROUTER_API_KEY = 'test-key';
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = originalKey;
-  });
-  let requests = 0;
-  let writes = 0;
-  globalThis.fetch = async (_url, options) => {
-    requests++;
-    if (requests === 1) return new Response(JSON.stringify(response({ tool_calls: [toolCall()] })), { status: 200 });
-    if (requests === 2) return new Response('{}', { status: 503 });
-    const body = JSON.parse(options.body);
-    assert.match(body.messages.at(-1).content, /"available":false/);
-    assert.match(body.messages.at(-1).content, /"status":"saved"/);
-    return new Response(JSON.stringify(response({ content: 'Confirmed.' })), { status: 200 });
-  };
-  assert.equal(await getOpenRouterAnswer({ systemPrompt: 'System', userContent: 'I prefer brief answers.', model: 'answer/model',
-    appToolModel: 'memory/model', appToolInput: 'I prefer brief answers.', appTools: { remember: { definition, run: async () => { writes++; return { status: 'saved' }; } } } }), 'Confirmed.');
-  assert.equal(writes, 1);
-  assert.equal(requests, 3);
+  assert.equal(bodies.length, 2);
+  const [first, second] = bodies;
+  assert.equal(first.model, 'exam/model');
+  assert.deepEqual(first.messages[1].content, richInput);
+  assert.deepEqual(first.response_format, format);
+  assert.deepEqual(first.tools, [{ type: 'openrouter:datetime' }, { type: 'function', function: { name: 'about_person' } }]);
+  assert.equal(first.tool_choice, 'auto');
+  assert.deepEqual(second.messages[1].content, richInput);
+  assert.deepEqual(second.response_format, format);
+  assert.deepEqual(second.tools, first.tools);
+  assert.equal(second.messages.at(-1).role, 'tool');
+  assert.match(second.messages.at(-1).content, /The user prefers concise explanations/);
 });

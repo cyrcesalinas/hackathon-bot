@@ -41,7 +41,7 @@ test('memory tools hide identity arguments, verify original evidence, and bound 
   const saved = [];
   const verifications = [];
   const context = memoryContext(event);
-  const enriched = await attachUserMemory(request, context, raw, { enabled: true,
+  const enriched = await attachUserMemory(request, context, raw, {
     store: { getRevision: async () => 7, remember: async (...args) => { saved.push(args); return { status: 'saved' }; }, list: async () => [] },
     verify: async (...args) => { verifications.push(args); return true; },
   });
@@ -62,14 +62,13 @@ test('memory tools hide identity arguments, verify original evidence, and bound 
 test('unverified claims never reach the database; unavailable storage preserves normal answers', async () => {
   let writes = 0;
   const store = { getRevision: async () => 0, remember: async () => { writes++; } };
-  const enriched = await attachUserMemory(request, memoryContext(event), raw, { enabled: true, store, verify: async () => false });
+  const enriched = await attachUserMemory(request, memoryContext(event), raw, { store, verify: async () => false });
   assert.equal((await enriched.appTools.remember.run({ note }, {})).error, 'note_not_supported_or_not_safe');
   assert.equal(writes, 0);
-  const unavailable = await attachUserMemory(request, memoryContext(event), raw, { enabled: true, store: { getRevision: async () => { throw new Error('private database diagnostic'); } } });
+  const unavailable = await attachUserMemory(request, memoryContext(event), raw, { store: { getRevision: async () => { throw new Error('private database diagnostic'); } } });
   assert.equal(unavailable.appTools, undefined);
   assert.match(unavailable.systemPrompt, /unavailable/);
   assert.doesNotMatch(unavailable.systemPrompt, /private database/);
-  assert.equal(await attachUserMemory(request, memoryContext(event), raw, { enabled: false }), request);
 });
 
 test('private memory management derives scope from Discord, validates IDs, and never accepts another owner', async () => {
@@ -78,10 +77,10 @@ test('private memory management derives scope from Discord, validates IDs, and n
   let deleted;
   const store = { getRevision: async () => 0, list: async () => [], remove: async (...args) => { deleted = args; return 2; } };
   const call = (action, id) => ({ ...event, data: { name: 'memory', options: [{ name: 'action', value: action }, { name: 'id', value: id }] } });
-  assert.match(await runMemoryCommand(call('list'), { store, enabled: true }), /no personal notes/);
-  assert.match(await runMemoryCommand(call('delete', 'invalid'), { store, enabled: true }), /valid note ID/);
+  assert.match(await runMemoryCommand(call('list'), { store }), /no personal notes/);
+  assert.match(await runMemoryCommand(call('delete', 'invalid'), { store }), /valid note ID/);
   assert.equal(deleted, undefined);
-  assert.match(await runMemoryCommand(call('clear'), { store, enabled: true }), /Deleted 2/);
+  assert.match(await runMemoryCommand(call('clear'), { store }), /Deleted 2/);
   assert.deepEqual(deleted[0], memoryContext(event));
   assert.equal(deleted[1], undefined);
 });
@@ -90,15 +89,12 @@ test('grounding validation is tool-free, requires all four booleans, and sends o
   const originalFetch = globalThis.fetch;
   const oldKey = process.env.OPENROUTER_API_KEY;
   const oldModel = process.env.OPENROUTER_MODEL;
-  const oldMemoryModel = process.env.OPENROUTER_MEMORY_MODEL;
   process.env.OPENROUTER_API_KEY = 'test-key';
   process.env.OPENROUTER_MODEL = 'test/model';
-  delete process.env.OPENROUTER_MEMORY_MODEL;
   t.after(() => {
     globalThis.fetch = originalFetch;
     if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey;
     if (oldModel === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = oldModel;
-    if (oldMemoryModel === undefined) delete process.env.OPENROUTER_MEMORY_MODEL; else process.env.OPENROUTER_MEMORY_MODEL = oldMemoryModel;
   });
   let body;
   let safe = false;

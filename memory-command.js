@@ -1,5 +1,5 @@
 import { personNotes } from './db/person-notes.js';
-import { memoryContext, memoryEnabled } from './user-memory.js';
+import { memoryContext } from './user-memory.js';
 
 export const MEMORY_COMMAND = {
   name: 'memory', description: 'Privately manage your personal notes in this exact channel',
@@ -13,8 +13,7 @@ export const MEMORY_COMMAND = {
 
 export const isMemoryCommand = (data) => data?.name === 'memory';
 
-export async function runMemoryCommand(event, { store = personNotes, enabled = memoryEnabled() } = {}) {
-  if (!enabled) return 'Personal memory is disabled.';
+export async function runMemoryCommand(event, { store = personNotes } = {}) {
   const context = memoryContext(event);
   const option = (name) => event.data?.options?.find((entry) => entry.name === name)?.value;
   const action = option('action');
