@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { replaceAdbQueryCatalog } from '../db/catalog.js';
-import { validateAdbQueryPlan } from '../db/query.js';
+import { formatAdbQueryAnswer, validateAdbQueryPlan } from '../db/query.js';
 
 const customersDataset = {
   id: 'customers',
@@ -82,4 +82,84 @@ test('still rejects zero, negative, and non-integer limits', () => {
       /Invalid row limit/,
     );
   }
+});
+
+test('formats a single selected column as a clean numbered list', () => {
+  const answer = formatAdbQueryAnswer({
+    kind: 'list',
+    dataset: { label: 'WORKSHOPS' },
+    columns: [{ id: 'title', label: 'TITLE' }],
+    limit: 10,
+  }, [
+    { title: 'SQL Fundamentals' },
+    { title: 'Build Your First APEX App' },
+    { title: 'OCI Foundations' },
+    { title: 'Intro to Generative AI' },
+  ]);
+
+  assert.equal(answer, [
+    '### Workshops',
+    '',
+    '4 results',
+    '',
+    '1. SQL Fundamentals',
+    '2. Build Your First APEX App',
+    '3. OCI Foundations',
+    '4. Intro to Generative AI',
+  ].join('\n'));
+  assert.doesNotMatch(answer, /TITLE:/);
+});
+
+test('formats two selected columns as compact labeled rows', () => {
+  const answer = formatAdbQueryAnswer({
+    kind: 'list',
+    dataset: { label: 'WORKSHOPS' },
+    columns: [
+      { id: 'title', label: 'TITLE' },
+      { id: 'level', label: 'LEVEL' },
+    ],
+    limit: 10,
+  }, [
+    { title: 'SQL Fundamentals', level: 'Beginner' },
+    { title: 'Advanced SQL', level: 'Advanced' },
+  ]);
+
+  assert.match(answer, /\*Title — Level\*/);
+  assert.match(answer, /1\. \*\*SQL Fundamentals\*\* — Beginner/);
+  assert.doesNotMatch(answer, /TITLE: SQL Fundamentals/);
+});
+
+test('formats wider results as a table with labels shown once', () => {
+  const answer = formatAdbQueryAnswer({
+    kind: 'list',
+    dataset: { label: 'WORKSHOPS' },
+    columns: [
+      { id: 'title', label: 'TITLE' },
+      { id: 'level', label: 'LEVEL' },
+      { id: 'duration', label: 'DURATION' },
+    ],
+    limit: 10,
+  }, [
+    { title: 'SQL Fundamentals', level: 'Beginner', duration: '60 min' },
+  ]);
+
+  assert.match(answer, /\| Title \| Level \| Duration \|/);
+  assert.match(answer, /\| SQL Fundamentals \| Beginner \| 60 min \|/);
+  assert.equal((answer.match(/Title/g) ?? []).length, 1);
+});
+
+test('formats grouped counts compactly and keeps the truncation notice', () => {
+  const answer = formatAdbQueryAnswer({
+    kind: 'count',
+    dataset: { label: 'WORKSHOPS' },
+    groupBy: [{ id: 'level', label: 'LEVEL' }],
+    limit: 2,
+  }, [
+    { level: 'Beginner', value: 12 },
+    { level: 'Advanced', value: 4 },
+  ], { truncated: true });
+
+  assert.match(answer, /\*Level — Count\*/);
+  assert.match(answer, /1\. \*\*Beginner\*\* — 12/);
+  assert.match(answer, /> Showing the first 2 results/);
 });

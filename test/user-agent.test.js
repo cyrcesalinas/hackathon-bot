@@ -140,8 +140,48 @@ test('web-enabled agents receive only the approved OpenRouter search tool', asyn
   assert.deepEqual(request.tools, [{ type: 'openrouter:web_search' }]);
   assert.deepEqual(request.provider, { data_collection: 'deny' });
   assert.deepEqual(request.reasoning, { effort: 'low' });
-  assert.match(request.systemPrompt, /Respond in English/);
+  assert.match(request.systemPrompt, /Write the entire final response in English/);
   assert.match(request.systemPrompt, /research report/);
+});
+
+test('English agents translate file-based output instead of following the attachment language', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('# Historia\n\nEste documento est\u00e1 escrito en espa\u00f1ol.');
+
+  try {
+    const request = await buildUserAgentRequest(
+      makeAgent({
+        tools: [AGENT_TOOLS.FILE_ANALYSIS],
+        language: 'en',
+      }),
+      'Analyze and rewrite this document.',
+      'attachment-1',
+      {
+        'attachment-1': {
+          filename: 'historia.md',
+          size: 52,
+          url: 'https://cdn.discordapp.com/attachments/1/2/historia.md',
+        },
+      },
+    );
+
+    assert.match(request.systemPrompt, /^OUTPUT LANGUAGE REQUIREMENT: Write the entire final response in English/);
+    assert.match(request.systemPrompt, /Translate attached material when reproducing, rewriting, or consolidating it/);
+    assert.match(request.systemPrompt, /The language of the task or attachment must not change this requirement/);
+    assert.match(request.systemPrompt, /OUTPUT LANGUAGE REQUIREMENT:[\s\S]*OUTPUT LANGUAGE REQUIREMENT:/);
+    assert.match(request.userContent, /Este documento est\u00e1 escrito en espa\u00f1ol/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('match-user language follows the task rather than the attachment', async () => {
+  const request = await buildUserAgentRequest(
+    makeAgent({ language: 'auto' }),
+    'Explain the supplied information.',
+  );
+
+  assert.match(request.systemPrompt, /Determine the response language from the task text, not from attached files/);
 });
 
 test('agent provider data collection is denied by default and can be explicitly allowed', () => {

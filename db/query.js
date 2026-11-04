@@ -331,21 +331,7 @@ export async function executeAdbQuery(rawPlan) {
     return { answer: 'No matching records were found.' };
   }
 
-  const lines = [`Results for ${plan.dataset.label}:`];
-  for (const row of visibleRows) {
-    if (plan.kind === 'list') {
-      lines.push(`• ${plan.columns.map((column) => `${column.label}: ${formatValue(row[column.id])}`).join(' | ')}`);
-      continue;
-    }
-
-    const groupLabels = plan.groupBy.map((column) => `${column.label}: ${formatValue(row[column.id])}`);
-    const measureLabel = plan.kind === 'count' ? 'Count' : `${plan.kind.toUpperCase()} ${plan.measure.label}`;
-    groupLabels.push(`${measureLabel}: ${formatValue(row.value)}`);
-    lines.push(`• ${groupLabels.join(' | ')}`);
-  }
-
-  if (truncated) lines.push(`Showing the first ${plan.limit} results. Add filters to narrow the query.`);
-  return { answer: lines.join('\n') };
+  return { answer: formatAdbQueryAnswer(plan, visibleRows, { truncated }) };
 }
 
 function formatValue(value) {
@@ -353,4 +339,86 @@ function formatValue(value) {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'object') return JSON.stringify(value).slice(0, 160);
   return String(value).replace(/[\r\n]+/g, ' ').slice(0, 160);
+}
+
+function humanizeLabel(value) {
+  const label = String(value ?? '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!label) return 'Results';
+  if (label !== label.toUpperCase()) return label;
+  return label
+    .split(' ')
+    .map((word) => (word.length <= 3 ? word : `${word[0]}${word.slice(1).toLowerCase()}`))
+    .join(' ');
+}
+
+function escapeInlineValue(value) {
+  return formatValue(value)
+    .replace(/@/g, '@\u200b')
+    .replace(/([\\`*_~|>])/g, '\\$1');
+}
+
+function escapeTableValue(value) {
+  return formatValue(value)
+    .replace(/@/g, '@\u200b')
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|');
+}
+
+function formatTable(columns, rows) {
+  const headings = columns.map((column) => humanizeLabel(column.label));
+  return [
+    `| ${headings.join(' | ')} |`,
+    `| ${headings.map(() => '---').join(' | ')} |`,
+    ...rows.map((row) => `| ${columns.map((column) => escapeTableValue(row[column.id])).join(' | ')} |`),
+  ];
+}
+
+export function formatAdbQueryAnswer(plan, rows, { truncated = false } = {}) {
+  if (!Array.isArray(rows) || rows.length === 0) return 'No matching records were found.';
+
+  const resultWord = rows.length === 1 ? 'result' : 'results';
+  const lines = [`### ${humanizeLabel(plan.dataset.label)}`, '', `${rows.length} ${resultWord}`, ''];
+
+  if (plan.kind === 'list') {
+    if (plan.columns.length === 1) {
+      const [column] = plan.columns;
+      rows.forEach((row, index) => lines.push(`${index + 1}. ${escapeInlineValue(row[column.id])}`));
+    } else if (plan.columns.length === 2) {
+      const [primary, secondary] = plan.columns;
+      lines.push(`*${humanizeLabel(primary.label)} — ${humanizeLabel(secondary.label)}*`);
+      rows.forEach((row, index) => {
+        lines.push(`${index + 1}. **${escapeInlineValue(row[primary.id])}** — ${escapeInlineValue(row[secondary.id])}`);
+      });
+    } else {
+      lines.push(...formatTable(plan.columns, rows));
+    }
+  } else {
+    const measureLabel = plan.kind === 'count'
+      ? 'Count'
+      : `${plan.kind === 'sum' ? 'Total' : 'Average'} ${humanizeLabel(plan.measure.label)}`;
+    const displayColumns = [
+      ...plan.groupBy,
+      { id: 'value', label: measureLabel },
+    ];
+
+    if (plan.groupBy.length === 0) {
+      lines.push(`**${measureLabel}:** ${escapeInlineValue(rows[0].value)}`);
+    } else if (displayColumns.length === 2) {
+      const [group] = plan.groupBy;
+      lines.push(`*${humanizeLabel(group.label)} — ${measureLabel}*`);
+      rows.forEach((row, index) => {
+        lines.push(`${index + 1}. **${escapeInlineValue(row[group.id])}** — ${escapeInlineValue(row.value)}`);
+      });
+    } else {
+      lines.push(...formatTable(displayColumns, rows));
+    }
+  }
+
+  if (truncated) {
+    lines.push('', `> Showing the first ${plan.limit} results. Add filters to narrow the query.`);
+  }
+  return lines.join('\n');
 }
