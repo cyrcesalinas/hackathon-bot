@@ -271,6 +271,39 @@ test('OpenRouter asks the final continuation to close cleanly and hides internal
   }
 });
 
+test('OpenRouter continues when the model stops after an unfinished Markdown heading', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  const originalModel = process.env.OPENROUTER_MODEL;
+  const bodies = [];
+  process.env.OPENROUTER_API_KEY = 'test-key';
+  process.env.OPENROUTER_MODEL = 'test/model';
+  globalThis.fetch = async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    const content = bodies.length === 1
+      ? '# Advantages\n\n## 1. Unified engine'
+      : 'It combines relational and AI workloads in one database.';
+    return new Response(JSON.stringify({
+      choices: [{ finish_reason: 'stop', message: { content } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const answer = await getOpenRouterAnswer({
+      systemPrompt: 'System prompt',
+      userContent: 'Explain the advantages',
+      maxContinuations: 2,
+    });
+    assert.equal(bodies.length, 2);
+    assert.match(answer, /## 1\. Unified engine\nIt combines relational/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+    if (originalModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = originalModel;
+  }
+});
+
 test('OpenRouter preserves accumulated text when a later continuation fails', async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENROUTER_API_KEY;

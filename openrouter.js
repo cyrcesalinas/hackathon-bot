@@ -122,9 +122,18 @@ function discardIncompleteFinalLine(answer) {
   const lastNewline = answer.lastIndexOf('\n');
   if (lastNewline < 0) return answer;
   const finalLine = answer.slice(lastNewline + 1).trimEnd();
+  if (/^#{1,6}\s+/.test(finalLine)) return answer;
   if (/[.!?:;|>`}\])”’"]$/.test(finalLine)) return answer;
   const completeLines = answer.slice(0, lastNewline).trimEnd();
   return completeLines || answer;
+}
+
+function hasIncompleteEnding(answer) {
+  const trimmed = answer.trimEnd();
+  if (!trimmed) return false;
+  const finalLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1).trim();
+  const codeFenceCount = (trimmed.match(/^\s*```/gm) || []).length;
+  return /^#{1,6}\s+.+$/.test(finalLine) || codeFenceCount % 2 === 1;
 }
 
 async function continueLengthLimitedAnswer(
@@ -193,7 +202,7 @@ async function continueLengthLimitedAnswer(
     }
 
     answer = `${answer}\n${inspection.answer}`;
-    if (inspection.finishReason !== 'length') return answer;
+    if (inspection.finishReason !== 'length' && !hasIncompleteEnding(answer)) return answer;
     answer = discardIncompleteFinalLine(answer);
   }
 
@@ -261,7 +270,7 @@ export async function getOpenRouterAnswer({
     : await sendOpenRouterRequest(requestBody, { deadline });
   const initialInspection = inspectOpenRouterResult(initialResult, requestBody);
   if (initialInspection.answer) {
-    if (initialInspection.finishReason === 'length' && maxContinuations > 0) {
+    if (maxContinuations > 0 && (initialInspection.finishReason === 'length' || hasIncompleteEnding(initialInspection.answer))) {
       return continueLengthLimitedAnswer(
         initialInspection.answer,
         requestBody,
@@ -286,7 +295,7 @@ export async function getOpenRouterAnswer({
     const retryResult = await sendOpenRouterRequest(retryRequestBody, { deadline });
     const retryInspection = inspectOpenRouterResult(retryResult, retryRequestBody);
     if (retryInspection.answer) {
-      if (retryInspection.finishReason === 'length' && maxContinuations > 0) {
+      if (maxContinuations > 0 && (retryInspection.finishReason === 'length' || hasIncompleteEnding(retryInspection.answer))) {
         return continueLengthLimitedAnswer(
           retryInspection.answer,
           retryRequestBody,
