@@ -1462,15 +1462,17 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
     if (name === 'oci' || name === 'ai-db') {
       const topicValue = data.options?.find((option) => option.name === 'topic')?.value;
       const question = data.options?.find((option) => option.name === 'question')?.value;
-      const topic = name === 'ai-db' ? getAiDbTopic(topicValue) : getOciTopic(topicValue);
-      const systemPrompt = name === 'ai-db' ? getAiDbSystemPrompt : getOciSystemPrompt;
+      const isAiDbCommand = name === 'ai-db';
+      const topic = isAiDbCommand ? getAiDbTopic(topicValue) : getOciTopic(topicValue);
+      const systemPrompt = isAiDbCommand ? getAiDbSystemPrompt : getOciSystemPrompt;
+      const commandLabel = isAiDbCommand ? 'AI Database' : 'OCI';
 
       if (!topic || typeof question !== 'string' || !question.trim()) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             flags: InteractionResponseFlags.EPHEMERAL,
-            content: 'Choose an OCI topic and enter a question.',
+            content: `Choose an ${commandLabel} topic and enter a question.`,
           },
         });
       }
@@ -1492,10 +1494,11 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
           systemPrompt: systemPrompt(topic),
           userContent: question.trim(),
           maxTokens: 1400,
+          maxContinuations: 2,
           tools: [{ type: 'openrouter:web_search' }],
         }),
         `/${name} ${topic.value}`,
-        "I couldn't answer this OCI question right now. Please try again shortly.",
+        `I couldn't answer this ${commandLabel} question right now. Please try again shortly.`,
       );
     }
 
