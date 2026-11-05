@@ -16,7 +16,7 @@ export function memoryContext(event, kind = 'interaction') {
 export function eligibleMemoryInput(event) {
   const data = event.data;
   const option = (name) => data?.options?.find((item) => item.name === name)?.value;
-  const name = { ask: 'prompt', research: 'query', study: 'input', oci: 'question' }[data?.name];
+  const name = { ask: 'prompt', research: 'query', study: 'input', oci: 'question', 'ai-db': 'question' }[data?.name];
   return name && typeof option(name) === 'string' ? option(name) : '';
 }
 

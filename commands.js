@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { InstallGlobalCommands, RemoveGlobalCommands } from './utils.js';
 import { OCI_TOPICS } from './agents/oci.js';
+import { AI_DB_TOPICS } from './agents/ai-db.js';
 import { MEMORY_COMMAND } from './memory-command.js';
 
 // Ask an LLM a question using OpenRouter
@@ -102,7 +103,7 @@ const STUDY_COMMAND = {
 
 const OCI_COMMAND = {
   name: 'oci',
-  description: 'Learn Oracle AI Database, GoldenGate, AI Lakehouse, and Deep Trust AI',
+  description: 'Learn about Oracle Cloud Infrastructure technologies',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
@@ -113,6 +114,29 @@ const OCI_COMMAND = {
       description: 'Choose an Oracle service or architecture',
       required: true,
       choices: OCI_TOPICS.map(({ name, value }) => ({ name, value })),
+    },
+    {
+      type: 3,
+      name: 'question',
+      description: 'A technical or conceptual question about the selected topic',
+      required: true,
+    },
+  ],
+};
+
+const AI_DB_COMMAND = {
+  name: 'ai-db',
+  description: 'Learn about Oracle AI Database, AI Lakehouse, and Deep Trust AI',
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+  options: [
+    {
+      type: 3,
+      name: 'topic',
+      description: 'Choose an Oracle database or AI architecture topic',
+      required: true,
+      choices: AI_DB_TOPICS.map(({ name, value }) => ({ name, value })),
     },
     {
       type: 3,
@@ -137,6 +161,7 @@ const ALL_COMMANDS = [
   RESEARCH_COMMAND,
   STUDY_COMMAND,
   OCI_COMMAND,
+  AI_DB_COMMAND,
   AGENT_COMMAND,
   MEMORY_COMMAND,
 ];

@@ -19,7 +19,7 @@ test('Discord scope uses the actual caller and exact channel for interactions an
 });
 
 test('only original typed command input is eligible; database planning and file contents are excluded', () => {
-  for (const [name, field] of [['ask', 'prompt'], ['research', 'query'], ['study', 'input'], ['oci', 'question']]) {
+  for (const [name, field] of [['ask', 'prompt'], ['research', 'query'], ['study', 'input'], ['oci', 'question'], ['ai-db', 'question']]) {
     assert.equal(eligibleMemoryInput({ data: { name, options: [{ name: field, value: raw }, { name: 'file', value: 'File content' }] } }), raw);
   }
   assert.equal(eligibleMemoryInput({ data: { name: 'db', options: [{ name: 'question', value: raw }] } }), '');

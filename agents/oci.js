@@ -1,35 +1,10 @@
-export { getOciSystemPrompt } from '../prompts.js';
-
 export const OCI_TOPICS = [
-  {
-    name: 'Oracle AI Database',
-    value: 'oracle-ai-database',
-    sources: [
-      'https://docs.oracle.com/en/database/oracle/oracle-database/26/ai.html',
-      'https://docs.oracle.com/en-us/iaas/autonomous-database-serverless/doc/getting-started.html',
-    ],
-  },
-  {
-    name: 'Oracle GoldenGate',
-    value: 'goldengate',
-    sources: ['https://docs.oracle.com/en-us/iaas/goldengate/'],
-  },
-  {
-    name: 'Autonomous AI Lakehouse',
-    value: 'autonomous-ai-lakehouse',
-    sources: [
-      'https://docs.oracle.com/en-us/iaas/autonomous-database-serverless/doc/autonomous-lakehouse.html',
-      'https://www.oracle.com/autonomous-database/autonomous-ai-lakehouse/',
-    ],
-  },
-  {
-    name: 'Deep Trust AI Architecture',
-    value: 'deep-trust-ai-architecture',
-    sources: [
-      'https://blogs.oracle.com/database/announcing-oracle-deep-trust-ai-architecture',
-      'https://docs.oracle.com/en/database/oracle/oracle-database/26/ai.html',
-    ],
-  },
+  { name: 'Oracle GoldenGate', value: 'goldengate', sources: ['https://docs.oracle.com/en-us/iaas/goldengate/'] },
+  { name: 'Compute', value: 'compute', sources: ['https://docs.oracle.com/en-us/iaas/Content/Compute/home.htm'] },
+  { name: 'Networking', value: 'networking', sources: ['https://docs.oracle.com/en-us/iaas/Content/Network/Concepts/overview.htm'] },
+  { name: 'Identity and Access Management', value: 'iam', sources: ['https://docs.oracle.com/en-us/iaas/Content/Identity/home.htm'] },
+  { name: 'Object Storage', value: 'object-storage', sources: ['https://docs.oracle.com/en-us/iaas/Content/Object/Concepts/objectstorageoverview.htm'] },
+  { name: 'Kubernetes (OKE)', value: 'kubernetes-oke', sources: ['https://docs.oracle.com/en-us/iaas/Content/ContEng/home.htm'] },
 ];
 
 export function getOciTopic(value) {

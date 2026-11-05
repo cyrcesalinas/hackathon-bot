@@ -20,9 +20,11 @@ import { isMemoryCommand, runMemoryCommand } from './memory-command.js';
 import { closePersonNotesPool } from './db/person-notes.js';
 import { keepsInteractionPrivate } from './interaction-privacy.js';
 import { getOciTopic } from './agents/oci.js';
+import { getAiDbTopic } from './agents/ai-db.js';
 import {
   ASK_SYSTEM_PROMPT,
   getOciSystemPrompt,
+  getAiDbSystemPrompt,
   RESEARCH_SYSTEM_PROMPT,
 } from './prompts.js';
 import {
@@ -1457,10 +1459,11 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       );
     }
 
-    if (name === 'oci') {
+    if (name === 'oci' || name === 'ai-db') {
       const topicValue = data.options?.find((option) => option.name === 'topic')?.value;
       const question = data.options?.find((option) => option.name === 'question')?.value;
-      const topic = getOciTopic(topicValue);
+      const topic = name === 'ai-db' ? getAiDbTopic(topicValue) : getOciTopic(topicValue);
+      const systemPrompt = name === 'ai-db' ? getAiDbSystemPrompt : getOciSystemPrompt;
 
       if (!topic || typeof question !== 'string' || !question.trim()) {
         return res.send({
@@ -1486,12 +1489,12 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         res,
         req,
         async () => ({
-          systemPrompt: getOciSystemPrompt(topic),
+          systemPrompt: systemPrompt(topic),
           userContent: question.trim(),
           maxTokens: 1400,
           tools: [{ type: 'openrouter:web_search' }],
         }),
-        `/oci ${topic.value}`,
+        `/${name} ${topic.value}`,
         "I couldn't answer this OCI question right now. Please try again shortly.",
       );
     }
