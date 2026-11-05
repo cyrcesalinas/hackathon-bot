@@ -222,7 +222,7 @@ test('OpenRouter continues a partial length-limited answer without its incomplet
   }
 });
 
-test('OpenRouter stops after two continuation requests and marks the answer incomplete', async () => {
+test('OpenRouter asks the final continuation to close cleanly and hides internal truncation notices', async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENROUTER_API_KEY;
   const originalModel = process.env.OPENROUTER_MODEL;
@@ -258,7 +258,9 @@ test('OpenRouter stops after two continuation requests and marks the answer inco
     assert.match(answer, /Section 2 complete\./);
     assert.match(answer, /Section 3 complete\./);
     assert.doesNotMatch(answer, /unfinished/);
-    assert.match(answer, /may still be incomplete/);
+    assert.doesNotMatch(answer, /may still be incomplete/);
+    assert.match(bodies[2].messages.at(-1).content, /Finish the response completely/);
+    assert.match(bodies[2].messages.at(-1).content, /Close every open Markdown table/);
   } finally {
     globalThis.fetch = originalFetch;
     console.warn = originalWarn;
@@ -320,8 +322,7 @@ test('OpenRouter preserves accumulated text when a later continuation fails', as
     assert.match(answer, /Part one complete\./);
     assert.match(answer, /Part two complete\./);
     assert.doesNotMatch(answer, /unfinished/);
-    assert.match(answer, /continuation request failed/);
-    assert.match(answer, /may still be incomplete/);
+    assert.doesNotMatch(answer, /continuation request failed|may still be incomplete/);
   } finally {
     globalThis.fetch = originalFetch;
     console.warn = originalWarn;

@@ -34,6 +34,13 @@ export const CONTINUATION_INSTRUCTION = [
   'Begin directly with the continuation and do not add an introductory sentence.',
 ].join(' ');
 
+export const FINAL_CONTINUATION_INSTRUCTION = [
+  'Finish the response completely within this final continuation.',
+  'Close every open Markdown table, code fence, list, and sentence; do not start a new section unless you can finish it.',
+  'If needed, shorten the remaining content so the answer ends cleanly rather than stopping mid-sentence or mid-row.',
+  'Do not repeat earlier content. Begin directly with the continuation.',
+].join(' ');
+
 export const STUDY_EXAM_RETRY_INSTRUCTION = 'The previous response could not be used because it was incomplete or did not match the required exam format. Start over and generate the complete exam from the original study material. Return exactly five questions as valid JSON matching the required schema. Keep each question, choice, and explanation concise. Do not continue or refer to the previous response.';
 
 export function buildStudyExamRetrySystemPrompt(systemPrompt) {

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { buildSystemPromptWithDateTime, CONTINUATION_INSTRUCTION } from './prompts.js';
+import { buildSystemPromptWithDateTime, CONTINUATION_INSTRUCTION, FINAL_CONTINUATION_INSTRUCTION } from './prompts.js';
 import { runAppToolLoop } from './app-tools.js';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -150,7 +150,12 @@ async function continueLengthLimitedAnswer(
       messages: [
         ...requestBody.messages,
         { role: 'assistant', content: answer },
-        { role: 'user', content: CONTINUATION_INSTRUCTION },
+        {
+          role: 'user',
+          content: continuation === continuationLimit
+            ? FINAL_CONTINUATION_INSTRUCTION
+            : CONTINUATION_INSTRUCTION,
+        },
       ],
       reasoning: { enabled: false },
       ...(requestBody.tools?.some((tool) => tool.type === 'function') ? { tool_choice: 'none' } : {}),
@@ -194,9 +199,10 @@ async function continueLengthLimitedAnswer(
 
   const attemptLabel = attempts === 1 ? 'attempt' : 'attempts';
   if (continuationFailed) {
-    return `${answer}\n\n> ⚠️ A continuation request failed after ${attempts} continuation ${attemptLabel}. The completed text above was preserved, but the response may still be incomplete.`;
+    console.warn(`OpenRouter continuation failed after ${attempts} continuation ${attemptLabel}; returning the completed text available.`);
+    return answer;
   }
-  return `${answer}\n\n> ⚠️ This response reached the maximum output length after ${attempts} continuation ${attemptLabel} and may still be incomplete.`;
+  return answer;
 }
 
 export async function getOpenRouterAnswer({
