@@ -103,7 +103,7 @@ const STUDY_COMMAND = {
 
 const OCI_COMMAND = {
   name: 'oci',
-  description: 'Learn about Oracle Cloud Infrastructure technologies',
+  description: 'Learn about OCI infrastructure, AI, serverless, security, and operations',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
@@ -126,7 +126,7 @@ const OCI_COMMAND = {
 
 const AI_DB_COMMAND = {
   name: 'ai-db',
-  description: 'Learn about Oracle AI Database, AI Lakehouse, and Deep Trust AI',
+  description: 'Learn about Oracle AI Database, vector search, Select AI, and AI Lakehouse',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],

@@ -23,6 +23,24 @@ export const AI_DB_TOPICS = [
       'https://docs.oracle.com/en/database/oracle/oracle-database/26/ai.html',
     ],
   },
+  {
+    name: 'AI Vector Search and RAG',
+    value: 'ai-vector-search-rag',
+    sources: [
+      'https://docs.oracle.com/en/database/oracle/oracle-database/26/vecse/overview-ai-vector-search.html',
+      'https://docs.oracle.com/en/database/oracle/oracle-database/26/selai/use-retrieval-augmented-generation-and-vectors.html',
+    ],
+    guidance: 'Explain embeddings, vector storage and indexes, semantic or hybrid retrieval, and how retrieved context is used in RAG. Separate database capabilities from external model-provider behavior.',
+  },
+  {
+    name: 'Select AI',
+    value: 'select-ai',
+    sources: [
+      'https://docs.oracle.com/en/database/oracle/oracle-database/26/selai/select-ai-about.html',
+      'https://docs.oracle.com/en/database/oracle/oracle-database/26/selai/select-ai-features.html',
+    ],
+    guidance: 'Cover Select AI capabilities such as natural-language SQL, RAG, conversations, and database agents only where supported by the cited platform and release. Explain that generated SQL and its execution require appropriate permissions and review.',
+  },
 ];
 
 export function getAiDbTopic(value) {

@@ -9,8 +9,8 @@ A Discord learning assistant powered by OpenRouter and Oracle Autonomous Databas
 | `/ask` | Explain a question or concept. |
 | `/research` | Research a topic with web search and source links. |
 | `/study` | Build a study guide or take a five-question quiz from a topic or attached file. |
-| `/oci` | Learn about OCI technologies such as Compute, Networking, IAM, Object Storage, Kubernetes, and GoldenGate. |
-| `/ai-db` | Learn about Oracle AI Database, Autonomous AI Lakehouse, and Deep Trust AI Architecture. |
+| `/oci` | Learn about Compute, Networking, IAM, Object Storage, Kubernetes, GoldenGate, OCI Generative AI, serverless, streaming, observability, and security. |
+| `/ai-db` | Learn about Oracle AI Database, AI Vector Search and RAG, Select AI, Autonomous AI Lakehouse, and Deep Trust AI Architecture. |
 | `/db` | Check the Oracle connection, discover the approved catalog, or query approved schema data. |
 | `/agent` | Create, browse, test, edit, delete, and run reusable learning agents. |
 | `/memory` | Privately list, delete, or clear your own notes in the current channel. |
