@@ -7,6 +7,9 @@ const MAX_FILTERS = 5;
 const MAX_COLUMNS = 8;
 const MAX_GROUPS = 4;
 const MAX_ROWS = 25;
+const MAX_FORMATTED_ANSWER_CHARS = 1850;
+const MAX_TABLE_WIDTH = 86;
+const MAX_TABLE_CELL_LINES = 3;
 const IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9_$#]*$/;
 const SIMPLE_OPERATORS = {
   eq: '=',
@@ -360,20 +363,143 @@ function escapeInlineValue(value) {
     .replace(/([\\`*_~|>])/g, '\\$1');
 }
 
-function escapeTableValue(value) {
-  return formatValue(value)
-    .replace(/@/g, '@\u200b')
-    .replace(/\\/g, '\\\\')
-    .replace(/\|/g, '\\|');
+function codePointLength(value) {
+  return Array.from(value).length;
 }
 
-function formatTable(columns, rows) {
-  const headings = columns.map((column) => humanizeLabel(column.label));
-  return [
-    `| ${headings.join(' | ')} |`,
-    `| ${headings.map(() => '---').join(' | ')} |`,
-    ...rows.map((row) => `| ${columns.map((column) => escapeTableValue(row[column.id])).join(' | ')} |`),
-  ];
+function sanitizeTableValue(value) {
+  return formatValue(value)
+    .replace(/@/g, '@\u200b')
+    .replace(/`/g, "'")
+    .replace(/\t+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getTableColumnSpec(column, rows, index, columnCount) {
+  let label = humanizeLabel(column.label);
+  let prefix = '';
+  let suffix = '';
+
+  if (/\s+ID$/i.test(label) && !/^ID$/i.test(label)) {
+    label = label.replace(/\s+ID$/i, '');
+    prefix = '#';
+  } else if (/\s+Minutes$/i.test(label)) {
+    label = label.replace(/\s+Minutes$/i, '');
+    suffix = ' min';
+  } else if (/\s+Seconds$/i.test(label)) {
+    label = label.replace(/\s+Seconds$/i, '');
+    suffix = ' sec';
+  } else if (/\s+Hours$/i.test(label)) {
+    label = label.replace(/\s+Hours$/i, '');
+    suffix = ' hr';
+  }
+
+  const rawValues = rows.map((row) => row[column.id]);
+  const rightAlign = column.type === 'number' || rawValues.every((value) =>
+    value === null || value === undefined || typeof value === 'number');
+  const values = rawValues.map((value) => {
+    if (value === null || value === undefined) return '—';
+    return `${prefix}${sanitizeTableValue(value)}${suffix}`;
+  });
+  const longest = Math.max(codePointLength(label), ...values.map(codePointLength));
+  const cap = rightAlign ? 14 : columnCount === 2 ? (index === 0 ? 36 : 48) : index === 0 ? 36 : 24;
+
+  return {
+    column,
+    label,
+    values,
+    rightAlign,
+    desiredWidth: Math.max(1, Math.min(longest, cap)),
+  };
+}
+
+function allocateTableWidths(specs) {
+  const separatorWidth = Math.max(0, specs.length - 1) * 3;
+  const available = Math.max(specs.length * 4, MAX_TABLE_WIDTH - separatorWidth);
+  const baseWidth = specs.length >= 6 ? 6 : 8;
+  const widths = specs.map((spec) => Math.min(spec.desiredWidth, baseWidth));
+  let remaining = available - widths.reduce((total, width) => total + width, 0);
+
+  while (remaining > 0) {
+    const candidates = specs
+      .map((spec, index) => ({ index, need: spec.desiredWidth - widths[index] }))
+      .filter(({ need }) => need > 0)
+      .sort((left, right) => right.need - left.need || left.index - right.index);
+    if (!candidates.length) break;
+    widths[candidates[0].index] += 1;
+    remaining -= 1;
+  }
+  return widths;
+}
+
+function wrapTableText(value, width, maxLines = MAX_TABLE_CELL_LINES) {
+  let remaining = String(value).trim();
+  if (!remaining) return [''];
+  const lines = [];
+
+  while (remaining && lines.length < maxLines) {
+    const characters = Array.from(remaining);
+    if (characters.length <= width) {
+      lines.push(remaining);
+      remaining = '';
+      break;
+    }
+
+    const candidate = characters.slice(0, width).join('');
+    const lastSpace = candidate.lastIndexOf(' ');
+    const splitAt = lastSpace >= Math.floor(width / 2) ? lastSpace : width;
+    lines.push(characters.slice(0, splitAt).join('').trimEnd());
+    remaining = characters.slice(splitAt).join('').trimStart();
+  }
+
+  if (remaining && lines.length) {
+    const last = Array.from(lines.at(-1));
+    lines[lines.length - 1] = `${last.slice(0, Math.max(1, width - 1)).join('')}…`;
+  }
+  return lines;
+}
+
+function padTableCell(value, width, rightAlign) {
+  const padding = ' '.repeat(Math.max(0, width - codePointLength(value)));
+  return rightAlign ? `${padding}${value}` : `${value}${padding}`;
+}
+
+function renderTableRow(cellLines, widths, alignments) {
+  const height = Math.max(...cellLines.map((lines) => lines.length));
+  return Array.from({ length: height }, (_unused, lineIndex) =>
+    cellLines.map((lines, columnIndex) =>
+      padTableCell(lines[lineIndex] ?? '', widths[columnIndex], alignments[columnIndex]))
+      .join(' │ '));
+}
+
+function formatAdaptiveTable(columns, rows, maxCharacters) {
+  const specs = columns.map((column, index) => getTableColumnSpec(column, rows, index, columns.length));
+  const widths = allocateTableWidths(specs);
+  const header = renderTableRow(
+    specs.map((spec, index) => wrapTableText(spec.label, widths[index], 2)),
+    widths,
+    specs.map(() => false),
+  );
+  const divider = widths.map((width) => '─'.repeat(width)).join('─┼─');
+  const lines = ['```text', ...header, divider];
+  let displayedRows = 0;
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const renderedRow = renderTableRow(
+      specs.map((spec, columnIndex) =>
+        wrapTableText(spec.values[rowIndex], widths[columnIndex])),
+      widths,
+      specs.map((spec) => spec.rightAlign),
+    );
+    const candidate = [...lines, ...renderedRow, '```'].join('\n');
+    if (codePointLength(candidate) > maxCharacters) break;
+    lines.push(...renderedRow);
+    displayedRows += 1;
+  }
+
+  lines.push('```');
+  return { lines, displayedRows };
 }
 
 export function formatAdbQueryAnswer(plan, rows, { truncated = false } = {}) {
@@ -381,19 +507,21 @@ export function formatAdbQueryAnswer(plan, rows, { truncated = false } = {}) {
 
   const resultWord = rows.length === 1 ? 'result' : 'results';
   const lines = [`### ${humanizeLabel(plan.dataset.label)}`, '', `${rows.length} ${resultWord}`, ''];
+  let tableDisplayedRows;
 
   if (plan.kind === 'list') {
     if (plan.columns.length === 1) {
       const [column] = plan.columns;
-      rows.forEach((row, index) => lines.push(`${index + 1}. ${escapeInlineValue(row[column.id])}`));
-    } else if (plan.columns.length === 2) {
-      const [primary, secondary] = plan.columns;
-      lines.push(`*${humanizeLabel(primary.label)} — ${humanizeLabel(secondary.label)}*`);
-      rows.forEach((row, index) => {
-        lines.push(`${index + 1}. **${escapeInlineValue(row[primary.id])}** — ${escapeInlineValue(row[secondary.id])}`);
-      });
+      rows.forEach((row) => lines.push(`• ${escapeInlineValue(row[column.id])}`));
     } else {
-      lines.push(...formatTable(plan.columns, rows));
+      const prefixLength = codePointLength(lines.join('\n')) + 1;
+      const table = formatAdaptiveTable(
+        plan.columns,
+        rows,
+        Math.max(400, MAX_FORMATTED_ANSWER_CHARS - prefixLength - 120),
+      );
+      lines.push(...table.lines);
+      tableDisplayedRows = table.displayedRows;
     }
   } else {
     const measureLabel = plan.kind === 'count'
@@ -406,18 +534,21 @@ export function formatAdbQueryAnswer(plan, rows, { truncated = false } = {}) {
 
     if (plan.groupBy.length === 0) {
       lines.push(`**${measureLabel}:** ${escapeInlineValue(rows[0].value)}`);
-    } else if (displayColumns.length === 2) {
-      const [group] = plan.groupBy;
-      lines.push(`*${humanizeLabel(group.label)} — ${measureLabel}*`);
-      rows.forEach((row, index) => {
-        lines.push(`${index + 1}. **${escapeInlineValue(row[group.id])}** — ${escapeInlineValue(row.value)}`);
-      });
     } else {
-      lines.push(...formatTable(displayColumns, rows));
+      const prefixLength = codePointLength(lines.join('\n')) + 1;
+      const table = formatAdaptiveTable(
+        displayColumns,
+        rows,
+        Math.max(400, MAX_FORMATTED_ANSWER_CHARS - prefixLength - 120),
+      );
+      lines.push(...table.lines);
+      tableDisplayedRows = table.displayedRows;
     }
   }
 
-  if (truncated) {
+  if (tableDisplayedRows !== undefined && tableDisplayedRows < rows.length) {
+    lines.push('', `> Showing ${tableDisplayedRows} of ${rows.length} returned rows. Add filters to narrow the query.`);
+  } else if (truncated) {
     lines.push('', `> Showing the first ${plan.limit} results. Add filters to narrow the query.`);
   }
   return lines.join('\n');

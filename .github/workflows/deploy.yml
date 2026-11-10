@@ -6,7 +6,8 @@ on:
       - main
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: discord-example-production
@@ -16,6 +17,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install and test
+        run: |
+          npm ci
+          npm test
+
       - name: Pull, deploy, and show service logs
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
@@ -46,11 +61,11 @@ jobs:
             -o UserKnownHostsFile="$known_hosts_file" \
             "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          cd /home/opc/discord-example-app
+          cd /home/opc/hackathon-bot
           git pull --ff-only origin main
-          npm ci --omit=dev
+          /usr/local/bin/npm ci --omit=dev
 
-          if ! npm run deploy; then
+          if ! /usr/local/bin/npm run deploy; then
             sudo journalctl -u discord-example.service -n 100 --no-pager || true
             exit 1
           fi

@@ -228,12 +228,14 @@ test('OpenRouter asks the final continuation to close cleanly and hides internal
   const originalModel = process.env.OPENROUTER_MODEL;
   const originalWarn = console.warn;
   let requests = 0;
+  const bodies = [];
 
   process.env.OPENROUTER_API_KEY = 'test-key';
   process.env.OPENROUTER_MODEL = 'test/model';
   console.warn = () => {};
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (_url, options) => {
     requests += 1;
+    bodies.push(JSON.parse(options.body));
     return new Response(JSON.stringify({
       choices: [{
         finish_reason: 'length',

@@ -5,8 +5,9 @@
   "description": "Discord learning assistant powered by OpenRouter and Oracle Database",
   "main": "app.js",
   "type": "module",
+  "packageManager": "npm@11.19.1",
   "engines": {
-    "node": ">=18.x"
+    "node": ">=24 <25"
   },
   "scripts": {
     "start": "node app.js",
@@ -16,18 +17,15 @@
     "memory:agent-check": "node scripts/check-memory-agent.js",
     "test": "node --test",
     "deploy": "npm run register && sudo systemctl restart discord-example.service",
-    "dev": "nodemon app.js",
+    "dev": "node --watch app.js",
     "tunnel": "./bin/ngrok http 3000"
   },
   "license": "MIT",
   "dependencies": {
-    "discord-interactions": "^4.0.0",
-    "discord.js": "14.27.0",
-    "dotenv": "^16.0.3",
-    "express": "^4.18.2",
+    "discord-interactions": "^4.4.0",
+    "discord.js": "14.28.1",
+    "dotenv": "^18.0.10",
+    "express": "^4.22.3",
     "oracledb": "^26.0.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.0"
   }
 }

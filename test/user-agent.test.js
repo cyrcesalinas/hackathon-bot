@@ -128,20 +128,28 @@ test('an explicit false override removes a preset tool', () => {
 });
 
 test('web-enabled agents receive only the approved OpenRouter search tool', async () => {
-  const request = await buildUserAgentRequest(
-    makeAgent({
-      tools: [AGENT_TOOLS.WEB_SEARCH],
-      responseFormat: 'report',
-      language: 'en',
-    }),
-    'Compare two current approaches and cite sources.',
-  );
+  const originalDataCollection = process.env.OPENROUTER_AGENT_DATA_COLLECTION;
+  delete process.env.OPENROUTER_AGENT_DATA_COLLECTION;
 
-  assert.deepEqual(request.tools, [{ type: 'openrouter:web_search' }]);
-  assert.deepEqual(request.provider, { data_collection: 'deny' });
-  assert.deepEqual(request.reasoning, { effort: 'low' });
-  assert.match(request.systemPrompt, /Write the entire final response in English/);
-  assert.match(request.systemPrompt, /research report/);
+  try {
+    const request = await buildUserAgentRequest(
+      makeAgent({
+        tools: [AGENT_TOOLS.WEB_SEARCH],
+        responseFormat: 'report',
+        language: 'en',
+      }),
+      'Compare two current approaches and cite sources.',
+    );
+
+    assert.deepEqual(request.tools, [{ type: 'openrouter:web_search' }]);
+    assert.deepEqual(request.provider, { data_collection: 'deny' });
+    assert.deepEqual(request.reasoning, { effort: 'low' });
+    assert.match(request.systemPrompt, /Write the entire final response in English/);
+    assert.match(request.systemPrompt, /research report/);
+  } finally {
+    if (originalDataCollection === undefined) delete process.env.OPENROUTER_AGENT_DATA_COLLECTION;
+    else process.env.OPENROUTER_AGENT_DATA_COLLECTION = originalDataCollection;
+  }
 });
 
 test('English agents translate file-based output instead of following the attachment language', async () => {

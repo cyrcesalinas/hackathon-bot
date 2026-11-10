@@ -19,7 +19,8 @@ The bot also answers server messages that mention it. Agent runs and follow-up r
 
 ## Requirements
 
-- Node.js 18 or newer
+- Node.js 24.x
+- npm 11.x (the repository records the tested npm version in `package.json`)
 - A Discord application and bot token
 - An OpenRouter API key and model
 - Oracle Autonomous Database credentials and a wallet for `/db` and persistent agents
@@ -170,14 +171,14 @@ Command registration installs the current commands and removes the known legacy 
 
 ## Deployment
 
-The included GitHub Actions workflow connects to the configured OCI host, runs `npm ci --omit=dev`, registers commands, and restarts `discord-example.service`. Configure these repository values before enabling it:
+The included GitHub Actions workflow runs the full test suite, connects to the configured OCI host, installs production dependencies, registers commands, and restarts `discord-example.service`. Configure these repository values before enabling it:
 
 - Variable: `DEPLOY_HOST`
 - Variable: `DEPLOY_USER`
 - Secret: `DEPLOY_SSH_KEY`
 - Secret: `DEPLOY_KNOWN_HOSTS`
 
-The remote workflow currently expects the checkout at `/home/opc/discord-example-app`. Update the workflow and the `deploy` script together if your service or installation uses different names.
+The remote workflow expects a Git checkout at `/home/opc/hackathon-bot` and Node.js/npm installed under `/usr/local/bin`. The service is expected to be named `discord-example.service`.
 
 ## Data handling
 

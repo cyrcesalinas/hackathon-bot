@@ -1549,7 +1549,7 @@ const mentionClient = new Client({
   presence: {
     status: 'online',
     activities: [{
-      name: '@Consulting Stack Overflow for life choices',
+      name: 'your next big idea',
       type: ActivityType.Listening,
     }],
   },
