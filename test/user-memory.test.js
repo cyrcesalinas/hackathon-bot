@@ -59,9 +59,22 @@ test('memory tools hide identity arguments, verify original evidence, and bound 
   assert.equal(verifications[0][1].includes('File:'), false);
 });
 
+test('generic questions automatically include about_person notes before the model answers', async () => {
+  const recalled = [{ id: 'note-1', note: 'The user prefers all answers in Spanish in this channel.', createdAt: '2026-11-10T19:12:52.353Z' }];
+  const enriched = await attachUserMemory(
+    { systemPrompt: 'Assistant', userContent: 'What is a database?' },
+    memoryContext(event),
+    'What is a database?',
+    { store: { getRevision: async () => 4, list: async () => recalled } },
+  );
+  assert.match(enriched.systemPrompt, /already checked about_person.*including generic questions/);
+  assert.match(enriched.systemPrompt, /prefers all answers in Spanish/);
+  assert.match(enriched.systemPrompt, /not eligible evidence for remember/);
+});
+
 test('unverified claims never reach the database; unavailable storage preserves normal answers', async () => {
   let writes = 0;
-  const store = { getRevision: async () => 0, remember: async () => { writes++; } };
+  const store = { getRevision: async () => 0, list: async () => [], remember: async () => { writes++; } };
   const enriched = await attachUserMemory(request, memoryContext(event), raw, { store, verify: async () => false });
   assert.equal((await enriched.appTools.remember.run({ note }, {})).error, 'note_not_supported_or_not_safe');
   assert.equal(writes, 0);

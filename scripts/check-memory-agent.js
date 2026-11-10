@@ -12,10 +12,13 @@ try {
     const context = { guild: '0', userId, channel: String(index), source: { kind: 'interaction', id: '0' } };
     scopes.push(context);
     const calls = { remember: 0, about_person: 0 };
-    async function ask(input) {
+    async function ask(input, expectedNotes = []) {
       const request = await attachUserMemory({ systemPrompt: 'You are a helpful assistant. Use available tools to satisfy the user.', userContent: input,
         model, maxTokens: 2500 }, context, input, { enabled: true });
       if (!request.appTools) throw new Error('MEMORY_TOOLS_UNAVAILABLE');
+      for (const savedNote of expectedNotes) {
+        assert.ok(request.systemPrompt.includes(savedNote.note), 'MEMORY_RECALL_NOT_ATTACHED');
+      }
       for (const [name, tool] of Object.entries(request.appTools)) {
         const original = tool.run;
         tool.run = async (...args) => {
@@ -35,9 +38,9 @@ try {
     await ask('I prefer concise responses in Spanish. Please remember this preference for future conversations.');
     const savedNotes = await personNotes.list(context);
     if (savedNotes.length < 1 || savedNotes.length > 2) throw new Error('MEMORY_SAVE_NOT_CONFIRMED');
-    await ask('What do you remember about my response preferences? Consult your personal notes before answering.');
-    assert.ok(calls.remember >= 1 && calls.about_person >= 1, 'MEMORY_RECALL_NOT_CALLED');
-    console.log(`Configured model ${index + 1} passed real remember/about_person calls with ADB and datetime enabled.`);
+    await ask('What is a database?', savedNotes);
+    assert.ok(calls.remember >= 1, 'MEMORY_SAVE_NOT_CALLED');
+    console.log(`Configured model ${index + 1} passed a real remember call and automatic generic-question recall with ADB and datetime enabled.`);
   }
 } catch (error) {
   console.error('Memory agent check failed:', error.code || (/^(?:MEMORY_|OPENROUTER_|APP_TOOL_|INVALID_TOOL_|OpenRouter returned HTTP)/.test(error.message) ? error.message : error.name));

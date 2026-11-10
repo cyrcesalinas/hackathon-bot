@@ -3,6 +3,7 @@ import { ButtonStyleTypes, MessageComponentTypes } from 'discord-interactions';
 import {
   buildStudyAttachmentPrompt,
   buildStudyExamRetrySystemPrompt,
+  buildStudyGuideRetrySystemPrompt,
   buildStudyTextAttachmentPrompt,
   getStudySystemPrompt,
   getStudyTaskPrompt,
@@ -10,6 +11,7 @@ import {
 
 const MAX_STUDY_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_STUDY_TEXT_CHARS = 30_000;
+const STUDY_REPAIR_DEADLINE_MS = 120_000;
 const STUDY_EXAM_QUESTION_COUNT = 5;
 const ANSWER_BUTTON_PREFIX = 'A. ';
 const ANSWER_BUTTON_MAX_LENGTH = 80;
@@ -206,7 +208,7 @@ function getStudyResponseOptions(request) {
   const { name } = request;
   return {
     maxTokens: name === 'guide'
-      ? 4000
+      ? 3000
       : name === 'exam'
         ? Math.min(4000, 500 + STUDY_EXAM_QUESTION_COUNT * 350)
         : 900,
@@ -217,6 +219,7 @@ function getStudyResponseOptions(request) {
     ...(name === 'guide' ? {
       tools: [{ type: 'openrouter:web_search' }],
       maxContinuations: 2,
+      reasoning: { enabled: false },
     } : {}),
   };
 }
@@ -312,6 +315,44 @@ export function validateStudyGuideMarkdown(markdown) {
   }
 
   return { valid: errors.length === 0, errors };
+}
+
+function inspectStudyGuide(answer) {
+  try {
+    const markdown = sanitizeStudyGuideMarkdown(answer);
+    return { markdown, validation: validateStudyGuideMarkdown(markdown) };
+  } catch (error) {
+    if (!(error instanceof StudyFileError)) throw error;
+    return {
+      markdown: '',
+      validation: { valid: false, errors: ['The guide was empty or unreadable.'] },
+    };
+  }
+}
+
+export async function prepareStudyGuideWithRetry(answer, request, regenerate) {
+  const initial = inspectStudyGuide(answer);
+  if (initial.validation.valid) return initial.markdown;
+
+  console.warn('/study guide validation failed; retrying once:', JSON.stringify(initial.validation.errors));
+  let retryAnswer;
+  try {
+    retryAnswer = await regenerate({
+      ...request,
+      appTools: undefined,
+      reasoning: { enabled: false },
+      deadline: Date.now() + STUDY_REPAIR_DEADLINE_MS,
+      systemPrompt: buildStudyGuideRetrySystemPrompt(request.systemPrompt, initial.validation.errors),
+    });
+  } catch (error) {
+    console.error('/study guide repair request failed:', error?.message ?? error?.name ?? 'unknown error');
+    throw error;
+  }
+  const repaired = inspectStudyGuide(retryAnswer);
+  if (repaired.validation.valid) return repaired.markdown;
+
+  console.warn('/study guide repair failed:', JSON.stringify(repaired.validation.errors));
+  throw new StudyFileError("The generated study guide didn't pass completeness and Markdown checks after one repair attempt. Please try again.");
 }
 
 export function getStudyGuideFilename(request) {
@@ -555,6 +596,7 @@ export async function parseStudyQuizWithRetry(answer, request, regenerate) {
       ...request,
       systemPrompt: buildStudyExamRetrySystemPrompt(request.systemPrompt),
       reasoning: { enabled: false },
+      deadline: Date.now() + STUDY_REPAIR_DEADLINE_MS,
     });
     return parseStudyQuiz(retryAnswer, request.questionCount);
   } catch (error) {

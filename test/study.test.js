@@ -4,7 +4,9 @@ import {
   buildStudyOpenRouterRequest,
   parseStudyQuiz,
   parseStudyQuizWithRetry,
+  prepareStudyGuideWithRetry,
   renderStudyQuiz,
+  StudyFileError,
   StudyQuizError,
 } from '../study.js';
 
@@ -27,6 +29,95 @@ const request = {
   userContent: 'Study material',
   responseFormat: { type: 'json_schema' },
 };
+
+const completeGuide = `# Database Fundamentals
+
+## Overview
+
+An overview.
+
+## Intended Audience and Prerequisites
+
+Students with basic computer skills.
+
+## Learning Objectives
+
+- Explain a database.
+
+## Study Guide
+
+Databases organize information.
+
+## Worked Examples and Practice
+
+Review a simple table.
+
+## Common Misconceptions
+
+A database is not merely a spreadsheet.
+
+## Review Summary
+
+Databases store and retrieve structured information.
+
+## Key Terms
+
+- Table: A collection of rows.
+
+## Self-Test Questions
+
+1. What is a table?
+
+## Answer Key
+
+1. A collection of related rows.
+
+## Sources
+
+- [Oracle Database documentation](https://docs.oracle.com/en/database/)`;
+
+test('a valid study guide does not use the repair request', async () => {
+  let retries = 0;
+  const markdown = await prepareStudyGuideWithRetry(completeGuide, {
+    systemPrompt: 'Create a guide.', userContent: 'Databases',
+  }, async () => {
+    retries += 1;
+    return completeGuide;
+  });
+  assert.equal(retries, 0);
+  assert.match(markdown, /^# Database Fundamentals/);
+});
+
+test('an invalid study guide is repaired once with validation issues and memory writes disabled', async () => {
+  let retryRequest;
+  const startedAt = Date.now();
+  const markdown = await prepareStudyGuideWithRetry('# Incomplete guide', {
+    systemPrompt: 'Create a guide.',
+    userContent: 'Databases',
+    tools: [{ type: 'openrouter:web_search' }],
+    appTools: { remember: {} },
+  }, async (value) => {
+    retryRequest = value;
+    return completeGuide;
+  });
+  assert.match(markdown, /## Sources/);
+  assert.equal(retryRequest.appTools, undefined);
+  assert.deepEqual(retryRequest.reasoning, { enabled: false });
+  assert.ok(retryRequest.deadline >= startedAt + 119_000);
+  assert.deepEqual(retryRequest.tools, [{ type: 'openrouter:web_search' }]);
+  assert.equal(retryRequest.userContent, 'Databases');
+  assert.match(retryRequest.systemPrompt, /missing its learning objectives section/);
+  assert.match(retryRequest.systemPrompt, /Memory tools are disabled/);
+});
+
+test('a study guide that fails repair returns a safe final error', async () => {
+  await assert.rejects(
+    prepareStudyGuideWithRetry('# Incomplete guide', {
+      systemPrompt: 'Create a guide.', userContent: 'Databases',
+    }, async () => '# Still incomplete'),
+    (error) => error instanceof StudyFileError && /after one repair attempt/.test(error.userMessage),
+  );
+});
 
 test('a valid five-question exam renders as the first interactive quiz question', async () => {
   let retryCalls = 0;
@@ -140,6 +231,14 @@ test('exam instructions avoid testing the paper layout instead of its subject ma
   assert.match(request.systemPrompt, /test the underlying subject matter/);
   assert.match(request.systemPrompt, /question numbers, section labels, marks, or wording/);
   assert.match(request.systemPrompt, /without a letter or prefix/);
+});
+
+test('study guides use bounded chunks, continuations, and no hidden reasoning', async () => {
+  const guideRequest = await buildStudyOpenRouterRequest({ name: 'guide', topic: 'Database fundamentals' });
+  assert.equal(guideRequest.maxTokens, 3000);
+  assert.equal(guideRequest.maxContinuations, 2);
+  assert.deepEqual(guideRequest.reasoning, { enabled: false });
+  assert.deepEqual(guideRequest.tools, [{ type: 'openrouter:web_search' }]);
 });
 
 test('a truncated first response is replaced by one complete retry', async () => {

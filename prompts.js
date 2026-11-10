@@ -47,6 +47,15 @@ export function buildStudyExamRetrySystemPrompt(systemPrompt) {
   return `${systemPrompt}\n\n${STUDY_EXAM_RETRY_INSTRUCTION}`;
 }
 
+export function buildStudyGuideRetrySystemPrompt(systemPrompt, validationErrors = []) {
+  const issues = validationErrors
+    .filter((error) => typeof error === 'string')
+    .slice(0, 12)
+    .map((error) => `- ${error.replace(/[\u0000-\u001f\u007f]/gu, ' ')}`)
+    .join('\n');
+  return `${systemPrompt}\n\nThe previous study guide could not be used because it failed the Markdown completeness checks. Start over from the original study material and generate a shorter, complete standalone guide. Correct every issue listed below. Return only the finished Markdown document, include every required section, finish all sentences and code fences, and end with a Sources section containing direct Markdown links. Never output raw HTML, internal tool names, tool-call tags, or provider citation markers. Memory tools are disabled during this repair; do not claim to save new notes.\n\nValidation issues:\n${issues || '- The guide was empty or unreadable.'}`;
+}
+
 export function buildAgentFollowUpUserContent(userContent, {
   originalTask,
   previousTask,

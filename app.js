@@ -25,8 +25,12 @@ import {
   ASK_SYSTEM_PROMPT,
   getOciSystemPrompt,
   getAiDbSystemPrompt,
-  RESEARCH_SYSTEM_PROMPT,
 } from './prompts.js';
+import {
+  buildResearchRequest,
+  ensureCompleteResearch,
+  ResearchResponseError,
+} from './research.js';
 import {
   getOpenRouterAnswer,
   getOpenRouterModel,
@@ -39,9 +43,8 @@ import {
   getStudyGuideFilename,
   getStudyCommandRequest,
   parseStudyQuizWithRetry,
+  prepareStudyGuideWithRetry,
   renderStudyQuiz,
-  sanitizeStudyGuideMarkdown,
-  validateStudyGuideMarkdown,
   StudyFileError,
   StudyQuizError,
 } from './study.js';
@@ -495,7 +498,8 @@ async function answerInteraction(
     if (
       error instanceof StudyFileError ||
       error instanceof StudyQuizError ||
-      error instanceof AgentCommandError
+      error instanceof AgentCommandError ||
+      error instanceof ResearchResponseError
     ) {
       content = error.userMessage;
     } else {
@@ -580,13 +584,12 @@ function handleStudyRequest(res, req, studyRequest) {
   }
 
   const responseFormatter = studyRequest.name === 'guide'
-    ? (answer) => {
+    ? async (answer, request) => {
       const filename = getStudyGuideFilename(studyRequest);
-      const markdown = sanitizeStudyGuideMarkdown(answer);
-      const validation = validateStudyGuideMarkdown(markdown);
-      if (!validation.valid) {
-        throw new StudyFileError("The generated study guide didn't pass completeness and Markdown checks. Please try again.");
-      }
+      const markdown = await prepareStudyGuideWithRetry(answer, request, async (retryRequest) => getOpenRouterAnswer({
+        ...retryRequest,
+        tools: withOpenRouterDateTimeTool(retryRequest.tools),
+      }));
       return {
         content: `Your complete study guide is attached as \`${filename}\`.`,
         attachment: {
@@ -1448,14 +1451,16 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
       return deferOpenRouterCommand(
         res,
         req,
-        async () => ({
-          systemPrompt: RESEARCH_SYSTEM_PROMPT,
-          userContent: query.trim(),
-          maxTokens: 1200,
-          tools: [{ type: 'openrouter:web_search' }],
-        }),
+        async () => buildResearchRequest(query.trim()),
         '/research',
         "I couldn't complete the research right now. Please try again shortly.",
+        async (answer, request) => {
+          const markdown = await ensureCompleteResearch(answer, request, async (retryRequest) => getOpenRouterAnswer({
+            ...retryRequest,
+            tools: withOpenRouterDateTimeTool(retryRequest.tools),
+          }));
+          return prepareDiscordResponse(markdown, request.responseDelivery);
+        },
       );
     }
 
