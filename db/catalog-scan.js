@@ -23,11 +23,11 @@ export class AdbCatalogScanError extends Error {
 }
 
 function getScanScope() {
-  const owner = (process.env.ADB_CATALOG_OWNER || process.env.ADB_USER || '').trim().toUpperCase();
+  const owner = (process.env.ADB_USER || '').trim().toUpperCase();
   if (!IDENTIFIER_PATTERN.test(owner)) {
     throw new AdbCatalogScanError(
-      'Configure ADB_CATALOG_OWNER with the Oracle schema that owns the tables and views.',
-      'ADB_CATALOG_OWNER_INVALID',
+      'Configure ADB_USER with the Oracle schema that owns the tables and views.',
+      'ADB_USER_INVALID',
     );
   }
   return { owner };

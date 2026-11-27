@@ -60,8 +60,8 @@ END;
 -- ===== AGENT PROFILE TABLE =====
 -- Unified Oracle setup for the Discord agent store.
 --
--- Run this file as AGENT_STORE_OWNER with SQLcl, SQL*Plus, or a compatible
--- Oracle client. It is safe to retry:
+-- Run this file as ADB_USER with SQLcl, SQL*Plus, or a compatible Oracle
+-- client. The bot stores profiles and personal memory in this schema. It is safe to retry:
 --   * An empty schema receives the complete AGENT_PROFILES table.
 --   * A legacy agent table is upgraded in place without deleting agent rows.
 --   * An up-to-date schema is left unchanged.
@@ -312,6 +312,3 @@ END;
 
 COMMIT;
 
--- If ADB_USER differs from AGENT_STORE_OWNER, grant it table access here.
--- Example when ADB_USER=BOT_READONLY:
--- GRANT SELECT, INSERT, UPDATE, DELETE ON AGENT_PROFILES TO BOT_READONLY;

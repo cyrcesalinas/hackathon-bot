@@ -39,7 +39,7 @@ test('agent storage falls back to the generic ADB credentials', () => {
   assert.equal(config.owner, 'BOT_APP');
 });
 
-test('agent storage always uses the generic ADB credentials', () => {
+test('agent storage uses ADB_USER as its schema even when legacy owner settings are present', () => {
   const config = resolveAgentStoreConfig({
     ADB_USER: 'bot_readonly',
     ADB_PASSWORD: 'generic-password',
@@ -50,7 +50,7 @@ test('agent storage always uses the generic ADB credentials', () => {
 
   assert.equal(config.user, 'bot_readonly');
   assert.equal(config.password, 'generic-password');
-  assert.equal(config.owner, 'BOT_AGENT_OWNER');
+  assert.equal(config.owner, 'BOT_READONLY');
 });
 
 test('blank agent-store owner falls back to ADB_USER', () => {
