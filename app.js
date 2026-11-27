@@ -100,7 +100,7 @@ import {
 // Create an express app
 const app = express();
 // Get port, or default to 3000
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const DISCORD_API_URL = 'https://discord.com/api/v10';
 const recentAdbQueriesByUser = new Map();
 let recentAdbQueriesGlobal = [];

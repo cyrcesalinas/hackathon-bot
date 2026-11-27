@@ -25,7 +25,7 @@ try {
       throw new Error('MEMORY_SCHEMA_INCOMPATIBLE');
     }
   }
-  console.log('Memory tables and recent-notes index are installed. Run npm run memory:check with runtime credentials.');
+  console.log('Memory tables and recent-notes index are installed.');
 } catch (error) {
   console.error('Memory setup failed:', error.code || (error.message?.startsWith('MEMORY_') || error.message?.startsWith('RUN_SETUP_') ? error.message : error.name));
   process.exitCode = 1;

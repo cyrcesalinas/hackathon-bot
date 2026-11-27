@@ -7,7 +7,7 @@ export const hashText = (text) => createHash('sha256').update(text).digest('hex'
 
 export function memoryConfig(env = process.env) {
   const user = env.ADB_USER?.trim() || '';
-  const owner = (env.USER_MEMORY_OWNER?.trim() || env.AGENT_STORE_OWNER?.trim() || user).toUpperCase();
+  const owner = user.toUpperCase();
   if (!/^[A-Z][A-Z0-9_$#]{0,127}$/.test(owner)) throw new Error('MEMORY_OWNER_INVALID');
   return {
     user, owner,

@@ -22,13 +22,10 @@ export class AgentStoreConflictError extends Error {
 
 export function resolveAgentStoreConfig(environment = process.env) {
   const user = environment.ADB_USER?.trim() || '';
-  const owner = environment.AGENT_STORE_OWNER?.trim()
-    || environment.ADB_USER?.trim()
-    || user;
   return {
     user,
     password: environment.ADB_PASSWORD || '',
-    owner: owner.toUpperCase(),
+    owner: user.toUpperCase(),
     connectString: environment.ADB_CONNECT_STRING?.trim() || '',
     walletDir: environment.ADB_WALLET_DIR?.trim() || '',
     walletPassword: environment.ADB_WALLET_PASSWORD || '',
