@@ -39,7 +39,7 @@ test('agent storage falls back to the generic ADB credentials', () => {
   assert.equal(config.owner, 'BOT_APP');
 });
 
-test('dedicated agent-store credentials override generic credentials', () => {
+test('agent storage always uses the generic ADB credentials', () => {
   const config = resolveAgentStoreConfig({
     ADB_USER: 'bot_readonly',
     ADB_PASSWORD: 'generic-password',
@@ -48,8 +48,8 @@ test('dedicated agent-store credentials override generic credentials', () => {
     AGENT_STORE_OWNER: 'bot_agent_owner',
   });
 
-  assert.equal(config.user, 'bot_agent_app');
-  assert.equal(config.password, 'agent-password');
+  assert.equal(config.user, 'bot_readonly');
+  assert.equal(config.password, 'generic-password');
   assert.equal(config.owner, 'BOT_AGENT_OWNER');
 });
 
@@ -62,7 +62,7 @@ test('blank agent-store owner falls back to ADB_USER', () => {
     AGENT_STORE_OWNER: '   ',
   });
 
-  assert.equal(config.user, 'bot_agent_app');
+  assert.equal(config.user, 'bot_data_owner');
   assert.equal(config.owner, 'BOT_DATA_OWNER');
 });
 
@@ -128,28 +128,20 @@ test('an explicit false override removes a preset tool', () => {
 });
 
 test('web-enabled agents receive only the approved OpenRouter search tool', async () => {
-  const originalDataCollection = process.env.OPENROUTER_AGENT_DATA_COLLECTION;
-  delete process.env.OPENROUTER_AGENT_DATA_COLLECTION;
+  const request = await buildUserAgentRequest(
+    makeAgent({
+      tools: [AGENT_TOOLS.WEB_SEARCH],
+      responseFormat: 'report',
+      language: 'en',
+    }),
+    'Compare two current approaches and cite sources.',
+  );
 
-  try {
-    const request = await buildUserAgentRequest(
-      makeAgent({
-        tools: [AGENT_TOOLS.WEB_SEARCH],
-        responseFormat: 'report',
-        language: 'en',
-      }),
-      'Compare two current approaches and cite sources.',
-    );
-
-    assert.deepEqual(request.tools, [{ type: 'openrouter:web_search' }]);
-    assert.deepEqual(request.provider, { data_collection: 'deny' });
-    assert.deepEqual(request.reasoning, { effort: 'low' });
-    assert.match(request.systemPrompt, /Write the entire final response in English/);
-    assert.match(request.systemPrompt, /research report/);
-  } finally {
-    if (originalDataCollection === undefined) delete process.env.OPENROUTER_AGENT_DATA_COLLECTION;
-    else process.env.OPENROUTER_AGENT_DATA_COLLECTION = originalDataCollection;
-  }
+  assert.deepEqual(request.tools, [{ type: 'openrouter:web_search' }]);
+  assert.deepEqual(request.provider, { data_collection: 'deny' });
+  assert.deepEqual(request.reasoning, { effort: 'low' });
+  assert.match(request.systemPrompt, /Write the entire final response in English/);
+  assert.match(request.systemPrompt, /research report/);
 });
 
 test('English agents translate file-based output instead of following the attachment language', async () => {
@@ -190,18 +182,6 @@ test('match-user language follows the task rather than the attachment', async ()
   );
 
   assert.match(request.systemPrompt, /Determine the response language from the task text, not from attached files/);
-});
-
-test('agent provider data collection is denied by default and can be explicitly allowed', () => {
-  assert.deepEqual(resolveAgentProviderPolicy({}), { data_collection: 'deny' });
-  assert.deepEqual(
-    resolveAgentProviderPolicy({ OPENROUTER_AGENT_DATA_COLLECTION: 'allow' }),
-    { data_collection: 'allow' },
-  );
-  assert.deepEqual(
-    resolveAgentProviderPolicy({ OPENROUTER_AGENT_DATA_COLLECTION: 'unexpected' }),
-    { data_collection: 'deny' },
-  );
 });
 
 test('agent response formats use the expanded output budgets and two continuations', async () => {

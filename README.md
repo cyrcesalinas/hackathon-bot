@@ -66,12 +66,10 @@ For local development, expose the configured port with a tunnel such as ngrok.
 ```env
 OPENROUTER_API_KEY=your_openrouter_api_key
 OPENROUTER_MODEL=provider/model
-OPENROUTER_STUDY_MODEL=provider/instruct-model
 OPENROUTER_DATETIME_TIMEZONE=America/New_York
-OPENROUTER_AGENT_DATA_COLLECTION=deny
 ```
 
-`OPENROUTER_STUDY_MODEL` is optional and falls back to `OPENROUTER_MODEL`. The datetime timezone is also optional. Agent requests deny providers that collect data by default; set `OPENROUTER_AGENT_DATA_COLLECTION=allow` only after reviewing the selected provider's retention and training policy.
+The datetime timezone is optional. Agent requests deny providers that collect data.
 
 ### Oracle Autonomous Database
 
@@ -90,20 +88,20 @@ The connection uses node-oracledb Thin mode with `tnsnames.ora` and `ewallet.pem
 
 ### Agent profile storage
 
-For development, agent profiles can reuse `ADB_USER` and `ADB_PASSWORD`. For production, use a separate runtime account:
+Agent profiles use `ADB_USER` and `ADB_PASSWORD`, the same database credentials as the rest of the bot. `AGENT_STORE_OWNER` is an optional schema name if `AGENT_PROFILES` lives in a different schema; it defaults to `ADB_USER`.
 
 ```env
-AGENT_STORE_USER=BOT_AGENT_APP
-AGENT_STORE_PASSWORD=your_agent_store_password
 AGENT_STORE_OWNER=BOT_AGENT_OWNER
 ```
 
-Connect as `AGENT_STORE_OWNER` and apply the retry-safe schema script:
+Connect as the schema owner and apply the retry-safe schema script. When the schema owner differs from `ADB_USER`, grant the app account access to the table:
 
 ```sql
 @db/agent-store-schema.sql
-GRANT SELECT, INSERT, UPDATE, DELETE ON AGENT_PROFILES TO BOT_AGENT_APP;
+GRANT SELECT, INSERT, UPDATE, DELETE ON AGENT_PROFILES TO BOT_READONLY;
 ```
+
+Replace `BOT_READONLY` with the value configured in `ADB_USER` if it differs.
 
 The schema script creates a new `AGENT_PROFILES` table or upgrades an older one in place. Back up an existing production table before applying schema changes.
 
@@ -124,22 +122,18 @@ npm run memory:agent-check
 
 The first command applies `db/person-notes-schema.sql` without dropping data. The second creates synthetic notes, checks concurrent deduplication and isolation, deletes its test notes, and checks that `/db` cannot discover the tables. It requires the same runtime privileges as the app. Small scope revision tombstones remain to prevent delayed writes from undoing deletion.
 
-For a separate owner/runtime account, use owner credentials for setup, then grant the runtime user these permissions and switch to its credentials:
+If the memory schema owner differs from `ADB_USER`, connect as the schema owner for setup, then grant the app account these permissions. The bot continues to connect as `ADB_USER`:
 
 ```sql
-GRANT SELECT, INSERT, UPDATE, DELETE ON PERSON_NOTES TO BOT_MEMORY_APP;
-GRANT SELECT, INSERT, UPDATE, DELETE ON PERSON_NOTE_SCOPES TO BOT_MEMORY_APP;
+GRANT SELECT, INSERT, UPDATE, DELETE ON PERSON_NOTES TO BOT_READONLY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON PERSON_NOTE_SCOPES TO BOT_READONLY;
 ```
+
+Replace `BOT_READONLY` with the value configured in `ADB_USER` if it differs.
 
 Do not grant memory-table access to the `/db` account. The app also excludes memory tables from metadata discovery, query-plan validation, and SQL execution. Existing views or synonyms that expose private tables must not be granted to the `/db` account.
 
-```env
-USER_MEMORY_USER=BOT_MEMORY_APP
-USER_MEMORY_PASSWORD=your_memory_store_password
-USER_MEMORY_OWNER=BOT_MEMORY_OWNER
-```
-
-The account defaults to `AGENT_STORE_USER` and then `ADB_USER`; the owner defaults to `AGENT_STORE_OWNER` and then the memory account. Shared credentials are supported for development; separate accounts enforce the database boundary in production. Configure the database grants and register the `/memory` command before restarting the bot. Memory tools are included automatically when an eligible Discord request has a valid memory context and the store is available.
+`USER_MEMORY_OWNER` can name a different schema for the memory tables; it defaults to `AGENT_STORE_OWNER` and then `ADB_USER`. The bot uses `ADB_USER` and `ADB_PASSWORD` for both agent profiles and personal memory. Configure any required grants and register the `/memory` command before restarting the bot. Memory tools are included automatically when an eligible Discord request has a valid memory context and the store is available.
 
 Each `PERSON_NOTES` row stores its ID, Discord user, guild (`@dm` for private conversations), exact channel, note, source message/interaction ID, source type, and Oracle timestamp. Discord IDs remain strings. `remember` accepts **only** a note: all identity and provenance fields come from the Discord event, never from the model. Individual DMs and group DMs stay separate because their channel IDs differ. Notes never cross channels, servers, or users.
 

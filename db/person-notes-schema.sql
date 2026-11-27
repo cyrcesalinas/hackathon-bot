@@ -1,6 +1,6 @@
 -- Run as the memory schema owner. Safe to rerun; never drops existing data.
--- If runtime and owner differ, grant SELECT, INSERT, UPDATE, DELETE on both
--- tables to USER_MEMORY_USER. Do not grant these tables to the /db account.
+-- If ADB_USER and owner differ, grant SELECT, INSERT, UPDATE, DELETE on both
+-- tables to the account configured in ADB_USER. Do not grant these to /db.
 DECLARE
   n NUMBER;
 BEGIN
