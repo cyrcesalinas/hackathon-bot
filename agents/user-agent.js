@@ -25,10 +25,6 @@ export const MAX_AGENT_STYLE_LENGTH = 300;
 
 const MAX_AGENT_TASK_LENGTH = 1500;
 
-export function resolveAgentProviderPolicy(env = process.env) {
-  const dataCollection = env.OPENROUTER_AGENT_DATA_COLLECTION?.trim().toLowerCase();
-  return { data_collection: dataCollection === 'allow' ? 'allow' : 'deny' };
-}
 export class AgentCommandError extends Error {
   constructor(userMessage) {
     super(userMessage);
@@ -206,7 +202,7 @@ export async function buildUserAgentRequest(agent, taskValue, attachmentId, reso
     : agent.responseFormat === 'concise' ? 1000
       : 2500;
   const openRouterTools = canSearchWeb ? [{ type: 'openrouter:web_search' }] : undefined;
-  const provider = resolveAgentProviderPolicy();
+  const provider = { data_collection: 'deny' };
   const reasoning = attachmentId !== undefined
     ? { enabled: false }
     : ['detailed', 'report'].includes(agent.responseFormat)

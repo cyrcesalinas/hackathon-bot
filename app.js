@@ -572,13 +572,13 @@ function handleStudyRequest(res, req, studyRequest) {
     });
   }
 
-  const studyModel = getOpenRouterModel('study');
-  if (!isOpenRouterConfigured(studyModel)) {
+  const model = getOpenRouterModel();
+  if (!isOpenRouterConfigured(model)) {
     return res.send({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
         flags: InteractionResponseFlags.EPHEMERAL,
-        content: 'Set OPENROUTER_API_KEY and either OPENROUTER_STUDY_MODEL or OPENROUTER_MODEL in the bot environment.',
+        content: 'Set OPENROUTER_API_KEY and OPENROUTER_MODEL in the bot environment.',
       },
     });
   }
@@ -633,7 +633,7 @@ function handleStudyRequest(res, req, studyRequest) {
     req,
     async () => ({
       ...(await buildStudyOpenRouterRequest(studyRequest)),
-      model: studyModel,
+      model,
     }),
     `/study ${activityName}`,
     "I couldn't complete the study request right now. Please try again shortly.",

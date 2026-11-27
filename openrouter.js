@@ -28,10 +28,7 @@ export function withOpenRouterDateTimeTool(tools) {
   return requestTools;
 }
 
-export function getOpenRouterModel(purpose = 'default') {
-  if (purpose === 'study') {
-    return process.env.OPENROUTER_STUDY_MODEL?.trim() || process.env.OPENROUTER_MODEL?.trim() || '';
-  }
+export function getOpenRouterModel() {
   return process.env.OPENROUTER_MODEL?.trim() || '';
 }
 

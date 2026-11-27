@@ -8,7 +8,7 @@ import { personNotes, closePersonNotesPool } from '../db/person-notes.js';
 const userId = `0${Date.now()}${randomInt(100000, 999999)}`;
 const scopes = [];
 try {
-  for (const [index, model] of [...new Set([getOpenRouterModel(), getOpenRouterModel('study')])].entries()) {
+  for (const [index, model] of [getOpenRouterModel()].entries()) {
     const context = { guild: '0', userId, channel: String(index), source: { kind: 'interaction', id: '0' } };
     scopes.push(context);
     const calls = { remember: 0, about_person: 0 };
